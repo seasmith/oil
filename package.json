@@ -1,0 +1,19 @@
+{
+  "name": "rig_count",
+  "description": "automated reporting of weekly rig counts",
+  "version": "0.0.1",
+  "main": "index.js",
+  "scripts": {
+    "run": "node scripts/report/bot.js"
+  },
+  "repository": {
+    "type": "git"
+  },
+  "keywords": [],
+  "author": "Luke Smith",
+  "license": "GPL-2",
+  "homepage": "C:/Users/Luke/R/oil/index",
+  "dependencies": {
+    "twit": "^2.2.9"
+  }
+}

@@ -1,0 +1,375 @@
+---
+title  : "US Rig Counts Map Prep"
+author : "Luke Smith"
+date   : "2017-10-06"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: "Prepare map to import into main script."
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts Map Prep"
+  description : ""
+  image       : ""
+og :
+  image : ""
+---
+  
+```{r setup_std}
+# ____ Library_Tidyverse_Setup
+library(dplyr)
+library(purrr)
+library(sf)
+```
+
+```{r import_sf_data}
+ref <- "~/R/misc/oil/US/eia_shape"
+
+sf_plays_orig <- ref %>%
+ file.path("TightOil_ShaleGas_Plays_Lower48_EIA",
+           "TightOil_ShalePlays_US_EIA_May2016.shp") %>%
+ st_read()
+
+sf_basins <- ref %>%
+ file.path("SedimentaryBasins_US_EIA",
+           "SedimentaryBasins_US_May2011_v2.shp") %>%
+ st_read()
+
+load("~/R/misc/maps/states_map_simp.RData")
+```
+
+```{r import_drawn_mapedit_data}
+# These two had to be "hand-drawn" using the mapedit package
+
+granite_wash <- structure(list(Basin = "Granite Wash", feature_type = "polygon", 
+    geometry = structure(list(structure(list(structure(c(-99.9976, 
+    -100.2063, -100.3436, -100.5469, -100.6787, -100.8435, -100.8545, 
+    -100.8215, -100.6787, -100.5029, -100.3079, -100.1129, -99.7229, 
+    -99.4263, -99.2725, -99.1296, -99.0088, -98.9978, -99.1516, 
+    -99.3823, -99.4592, -99.5581, -99.7339, -99.9976, 35.7733, 
+    35.8623, 35.9202, 36.0313, 36.0757, 36.0846, 35.9869, 35.9157, 
+    35.8089, 35.6751, 35.5412, 35.407, 35.1379, 35.021, 34.976, 
+    34.976, 34.976, 35.084, 35.1828, 35.2815, 35.3532, 35.4338, 
+    35.5859, 35.7733), .Dim = c(24L, 2L))), class = c("XY", "POLYGON", 
+    "sfg"))), n_empty = 0L, precision = 0, class = c("sfc_POLYGON", 
+    "sfc"), bbox = structure(c(-100.8545, 34.976, -98.9978, 36.0846
+    ), .Names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox"), crs = structure(list(
+        epsg = 4326L, proj4string = "+proj=longlat +datum=WGS84 +no_defs"), .Names = c("epsg", 
+    "proj4string"), class = "crs")), Lithology = NA, Shale_play = "Granite Wash", 
+    Source = "Hand Drawn", Area_sq_mi = NA, Area_sq_km = NA, 
+    Age_shale = NA), row.names = c(NA, -1L), class = c("sf", 
+"data.frame"), sf_column = "geometry", agr = structure(c(NA_integer_, 
+NA_integer_), class = "factor", .Label = c("constant", "aggregate", 
+"identity"), .Names = c("Basin", "feature_type")), .Names = c("Basin", 
+"feature_type", "geometry", "Lithology", "Shale_play", "Source", 
+"Area_sq_mi", "Area_sq_km", "Age_shale"))
+
+mississippian <- structure(list(Basin = "Mississippian", feature_type = "polygon", 
+    geometry = structure(list(structure(list(structure(c(-98.5474, 
+    -99.0747, -99.4263, -99.5142, -99.2285, -98.6572, -97.4268, 
+    -96.5918, -96.1523, -95.8887, -95.6909, -95.5151, -95.6909, 
+    -96.1084, -97.0752, -97.7563, -98.5474, 36.3151, 36.4213, 
+    36.6155, 37.0201, 37.2653, 37.3178, 37.4225, 37.3352, 37.1778, 
+    37.1078, 36.9499, 36.6684, 36.3505, 36.2088, 36.2266, 36.2974, 
+    36.3151), .Dim = c(17L, 2L))), class = c("XY", "POLYGON", 
+    "sfg"))), n_empty = 0L, precision = 0, class = c("sfc_POLYGON", 
+    "sfc"), bbox = structure(c(-99.5142, 36.2088, -95.5151, 37.4225
+    ), .Names = c("xmin", "ymin", "xmax", "ymax"), class = "bbox"), crs = structure(list(
+        epsg = 4326L, proj4string = "+proj=longlat +datum=WGS84 +no_defs"), .Names = c("epsg", 
+    "proj4string"), class = "crs")), Lithology = NA, Shale_play = "Mississippian", 
+    Source = "Hand Drawn", Area_sq_mi = NA, Area_sq_km = NA, 
+    Age_shale = NA), row.names = c(NA, -1L), class = c("sf", 
+"data.frame"), sf_column = "geometry", agr = structure(c(NA_integer_, 
+NA_integer_), class = "factor", .Label = c("constant", "aggregate", 
+"identity"), .Names = c("Basin", "feature_type")), .Names = c("Basin", 
+"feature_type", "geometry", "Lithology", "Shale_play", "Source", 
+"Area_sq_mi", "Area_sq_km", "Age_shale"))
+```
+
+```{r wrangle_sf_data}
+# Keep only 48 states (no lakes)
+states_48 <- states_map_simp %>%
+  select(-(STATE_FIPS:YEAR_ADM), -(POP:PRIM_MILES)) %>%
+  filter(NAME %in% c(state.name, "District of Columbia")) %>%
+  filter(!(NAME %in% c("Alaska", "Hawaii"))) %>%
+  filter(TYPE != "Water") %>%
+  st_transform(4326)
+
+# Gather the plays that we need
+sf_plays <- sf_plays_orig %>%
+  select(-Lithology, -(Source:Age_shale)) %>%
+  filter(Shale_play != "Heath") %>%
+  mutate(Shale_play = case_when(
+    Basin == "Ardmore"  ~ "Ardmore Woodford",
+    Basin == "Arkoma" & Shale_play != "Fayetteville"  ~ "Arkoma Woodford",
+    Basin == "Anadarko" ~ "Cana Woodford",
+    Basin == "Williston" ~ "Williston",
+    Basin == "Permian" ~ "Permian",
+    Basin == "Denver Basin" ~ "DJ-Niobrara",
+    Basin == "TX-LA-MS Salt Basin" ~ "Haynesville",
+    TRUE ~ as.character(Shale_play)
+    ))
+
+# Cast 'hand-drawn' polygons to multipolygon
+granite_wash <- granite_wash %>%
+  select(-feature_type) %>%
+  st_cast("MULTIPOLYGON")
+mississippian <- mississippian %>%
+  select(-feature_type) %>%
+  st_cast("MULTIPOLYGON")
+
+# Remove uneeded columns
+granite_wash <- granite_wash %>% select(-Lithology, -(Source:Age_shale))
+mississippian <- mississippian %>% select(-Lithology, -(Source:Age_shale))
+
+basin_names <- c("Ardmore Woodford", "Arkoma Woodford",
+                 "Barnett", "Cana Woodford",
+                 "DJ-Niobrara", "Eagle Ford",
+                 "Fayetteville", "Granite Wash",
+                 "Haynesville", "Marcellus",
+                 "Mississippian", "Permian",
+                 "Utica", "Williston", "Others")
+
+# Add the above two to the main table
+sf_plays <- sf_plays %>%
+  rbind(granite_wash) %>%
+  rbind(mississippian) %>%
+  filter(Shale_play %in% basin_names)
+
+##  Merge MULTIPOLYGONS
+# Separate dupes from non-dupes
+grouped_sf_plays <- sf_plays %>% group_by(Shale_play)
+
+dupes <- grouped_sf_plays %>%
+  filter(n() > 1)
+
+no_dupes  <- grouped_sf_plays %>%
+  filter(n() == 1)
+
+# Split and union (i.e. dissolve/merge) multi's
+new_dupe_geometry <- dupes %>%
+  split(.$Shale_play) %>%
+  map(~st_cast(st_sf(st_union(.x)), "MULTIPOLYGON")) %>%
+  reduce(rbind) %>%
+  st_geometry()
+
+# Splice of some rows and add the new dissolved geometry
+dupes <- dupes %>%
+  slice(c(1, nrow(.))) %>%
+  st_set_geometry(new_dupe_geometry)
+
+# Add the two together again
+sf_plays <- no_dupes %>%
+  rbind(dupes)
+
+##  Create text table for `geom_text()`
+# Find centroid of each feature to use as (x, y) for text
+sf_text <- sf_plays %>%
+  st_centroid()
+
+# Extract coordinates (to use with geom_point())
+sf_text <- sf_text %>%
+  st_coordinates() %>%
+  cbind(as_tibble(sf_text), .) %>%
+  as_tibble()
+```
+
+```{r text_mods}
+# FOR ALBERS EQUAL AREA
+text_mods <- sf_text %>%
+  cbind(tibble(offset_X = c( 5.8,  1.8, # Ardmore,      Fayetteville
+                             4.3,  5.4, # Barnett,      Arkoma
+                            -5.8,  2.0, # Cana,         Haynesville
+                            -4.6,       # Eagle Ford
+                            -4.5, -5.7, # DJ-Niobrara, Marcellus
+                            -5.4, -4.2, # Utica, Granite Wash
+                             0.0, -3.8, # Mississippian, Permian
+                            -3.7))) %>% # Williston
+  cbind(tibble(offset_Y = c(-0.9,  0.9, # Ardmore,      Fayetteville
+                            -1.0, -0.5, # Barnett,      Arkoma
+                             1.3,  0.0, # Cana,  Haynesville
+                            -0.7,       # Eagle Ford
+                            -1.0, -2.7, # DJ-Niobrara, Marcellus
+                             0.0,  0.0, # Utica, Granite Wash
+                             1.5,  1.0, # Mississippian, Permian
+                            -1.0))) %>% # Williston
+  mutate(new_X = X + offset_X,
+         new_Y = Y + offset_Y)
+
+text_mods <- text_mods %>%
+    mutate(new_X = new_X + offset_X,
+           new_Y = new_Y + offset_Y,
+
+           new_X = case_when(
+             Shale_play == "Ardmore Woodford" ~ new_X * 1.072, #$ + pos
+             Shale_play == "Fayetteville" ~ new_X * 1.03,      #$ + pos
+             Shale_play == "Barnett" ~ new_X * 1.05,           #$ + pos
+             Shale_play == "Arkoma Woodford" ~ new_X * 1.07,   #$ + pos
+             Shale_play == "Cana Woodford" ~ new_X * 0.95,     #$ - neg
+             Shale_play == "Haynesville"   ~ new_X * 1.00,
+             Shale_play == "Eagle Ford" ~ new_X * 0.955,       #$ - neg
+             Shale_play == "DJ-Niobrara" ~ new_X * 0.96,       #$ - neg
+             Shale_play == "Marcellus" ~ new_X * 0.94,         #$ - neg
+             Shale_play == "Utica" ~ new_X * 0.935,            #$ - neg
+             Shale_play == "Granite Wash" ~ new_X * 0.96,      #$ - neg
+             Shale_play == "Mississippian" ~ new_X * 1.00,     #$ 0
+             Shale_play == "Permian" ~ new_X * 0.9675,         #$ - neg
+             Shale_play == "Williston" ~ new_X * 0.985         #$ - neg
+             ),
+           new_Y = case_when(
+             Shale_play == "Ardmore Woodford" ~ new_Y * 1.038, #$ - neg
+             Shale_play == "Fayetteville" ~ new_Y * 0.975,     #$ + pos
+             Shale_play == "Barnett" ~ new_Y * 1.00,           #$ - neg
+             Shale_play == "Arkoma Woodford" ~ new_Y * 1.02,   #$ - neg
+             Shale_play == "Cana Woodford" ~ new_Y * 0.97,     #$ + pos
+             Shale_play == "Haynesville"   ~ new_Y * 1.00,
+             Shale_play == "Eagle Ford" ~ new_Y * 1.035,       #$ - neg
+             Shale_play == "DJ-Niobrara" ~ new_Y * 1.04,       #$ - neg
+             Shale_play == "Marcellus" ~ new_Y * 1.079,        #$ - neg
+             Shale_play == "Utica" ~ new_Y * 1.00,             #$ 0
+             Shale_play == "Granite Wash" ~ new_Y * 1.00,      #$ 0
+             Shale_play == "Mississippian" ~ new_Y * 0.96,     #$ + pos
+             Shale_play == "Permian" ~ new_Y * 0.95,           #$ 0
+             Shale_play == "Williston" ~ new_Y * 1.05          #$ - neg
+             )) %>%
+    st_as_sf(coords = c("new_X", "new_Y"), crs = 4326, agr = "identity")
+
+
+text_mods  <- text_mods %>%
+    st_transform(102003)
+
+text_mods <- text_mods %>%
+    select(-(X:Y)) %>%
+    st_coordinates() %>%
+    cbind(as_tibble(text_mods %>% select(-(X:Y))), .)
+```
+
+```{r point_to_lines}
+# Not all text labels can neatly fit next to their respective basins
+line_barnett <- text_mods %>%
+  filter(Shale_play == "Barnett")
+
+line_barnett <- line_barnett[c(1, 1), ]
+
+line_barnett$X[1] <- line_barnett$X[1] - 160000
+line_barnett$Y[1] <- line_barnett$Y[1] + 20000
+line_barnett$X[2] <- line_barnett$X[2] - 260000
+line_barnett$Y[2] <- line_barnett$Y[2] + 170000
+
+line_cana_woodford <- text_mods %>%
+  filter(Shale_play == "Cana Woodford")
+
+line_cana_woodford <- line_cana_woodford[c(1, 1), ]
+
+line_cana_woodford$X[1] <- line_cana_woodford$X[1] + 300000
+line_cana_woodford$Y[1] <- line_cana_woodford$Y[1] - 50000
+line_cana_woodford$X[2] <- line_cana_woodford$X[2] + 450000
+line_cana_woodford$Y[2] <- line_cana_woodford$Y[2] - 130000
+```
+
+```{r text_mods2}
+text_mods2 <- sf_text %>%
+  cbind(tibble(offset_X = c( 1.8,  1.8, # Ardmore,      Fayetteville
+                             4.3,  1.4, # Barnett,      Arkoma
+                            -5.8,  2.0, # Cana,         Haynesville
+                            -4.6,       # Eagle Ford
+                            -4.5, -5.7, # DJ-Niobrara, Marcellus
+                            -5.4, -4.2, # Utica, Granite Wash
+                             0.0, -3.8, # Mississippian, Permian
+                            -3.7))) %>% # Williston
+  cbind(tibble(offset_Y = c(-0.9,  0.9, # Ardmore,      Fayetteville
+                            -1.0, -0.5, # Barnett,      Arkoma
+                             1.3,  0.0, # Cana,  Haynesville
+                            -0.7,       # Eagle Ford
+                            -1.0, -2.7, # DJ-Niobrara, Marcellus
+                             0.0,  0.1, # Utica, Granite Wash
+                             1.5,  1.0, # Mississippian, Permian
+                            -1.0))) %>% # Williston
+  mutate(new_X = X + offset_X,
+         new_Y = Y + offset_Y)
+
+text_mods2 <- text_mods2 %>%
+    mutate(new_X = new_X + offset_X,
+           new_Y = new_Y + offset_Y,
+
+           new_X = case_when(
+             Shale_play == "Ardmore Woodford" ~ new_X * 0.96,  #$ + pos
+             Shale_play == "Fayetteville" ~ new_X * 1.01,      #$ + pos
+             Shale_play == "Barnett" ~ new_X * 1.045,           #$ + pos
+             Shale_play == "Arkoma Woodford" ~ new_X * 0.965,  #$ + pos
+             Shale_play == "Cana Woodford" ~ new_X * 0.965,    #$ - neg
+             Shale_play == "Haynesville"   ~ new_X * 0.99,
+             Shale_play == "Eagle Ford" ~ new_X * 0.965,       #$ - neg
+             Shale_play == "DJ-Niobrara" ~ new_X * 0.965,      #$ - neg
+             Shale_play == "Marcellus" ~ new_X * 0.945,        #$ - neg
+             Shale_play == "Utica" ~ new_X * 0.942,            #$ - neg
+             Shale_play == "Granite Wash" ~ new_X * 0.96,      #$ - neg
+             Shale_play == "Mississippian" ~ new_X * 1.00,     #$ 0
+             Shale_play == "Permian" ~ new_X * 0.9750,         #$ - neg
+             Shale_play == "Williston" ~ new_X * 0.985         #$ - neg
+             ),
+           new_Y = case_when(
+             Shale_play == "Ardmore Woodford" ~ new_Y * 1.035, #$ - neg
+             Shale_play == "Fayetteville" ~ new_Y * 0.980,     #$ + pos
+             Shale_play == "Barnett" ~ new_Y * 1.00,           #$ - neg
+             Shale_play == "Arkoma Woodford" ~ new_Y * 1.023,  #$ - neg
+             Shale_play == "Cana Woodford" ~ new_Y * 0.972,     #$ + pos
+             Shale_play == "Haynesville"   ~ new_Y * 1.00,
+             Shale_play == "Eagle Ford" ~ new_Y * 1.035,       #$ - neg
+             Shale_play == "DJ-Niobrara" ~ new_Y * 1.04,       #$ - neg
+             Shale_play == "Marcellus" ~ new_Y * 1.095,        #$ - neg
+             Shale_play == "Utica" ~ new_Y * 1.00,             #$ 0
+             Shale_play == "Granite Wash" ~ new_Y * 0.98,      #$ + pos
+             Shale_play == "Mississippian" ~ new_Y * 0.96,     #$ + pos
+             Shale_play == "Permian" ~ new_Y * 0.95,           #$ 0
+             Shale_play == "Williston" ~ new_Y * 1.05          #$ - neg
+             )) %>%
+    st_as_sf(coords = c("new_X", "new_Y"), crs = 4326, agr = "identity")
+```
+
+```{r point_to_lines2, eval=TRUE}
+# Not all text labels can neatly fit next to their respective basins
+
+line_cana_woodford2 <- text_mods2 %>%
+  filter(Shale_play == "Cana Woodford")
+
+line_cana_woodford2 <- line_cana_woodford2[c(1, 1), ]
+
+line_cana_woodford2$X[1] <- line_cana_woodford2$X[1] - 2.9
+line_cana_woodford2$Y[1] <- line_cana_woodford2$Y[1] + 1.2
+line_cana_woodford2$X[2] <- line_cana_woodford2$X[2] - 0.8
+line_cana_woodford2$Y[2] <- line_cana_woodford2$Y[2] + 0.4
+
+line_barnett2 <- text_mods2 %>%
+  filter(Shale_play == "Barnett")
+
+line_barnett2 <- line_barnett2[c(1, 1), ]
+
+line_barnett2$X[2] <- line_barnett2$X[2] + 1.15  # high
+line_barnett2$Y[2] <- line_barnett2$Y[2] - 0.70
+line_barnett2$X[1] <- line_barnett2$X[1] + 2.15  # low
+line_barnett2$Y[1] <- line_barnett2$Y[1] - 1.65
+```
+
+```{r extract_coords}
+text_mods2 <- text_mods2 %>%
+    select(-(X:Y)) %>%
+    st_coordinates() %>%
+    cbind(as_tibble(text_mods2 %>% select(-(X:Y))), .)
+```
+
+```{r save_it}
+maps_path <- "data/maps"
+
+save("states_48", file = file.path(maps_path, "states_48.RData"))
+save("sf_plays",  file = file.path(maps_path, "sf_plays.RData"))
+save("sf_plays",  file = "~/R/misc/maps/sf_plays.RData")
+
+save("text_mods", file = file.path(maps_path, "text_mods.RData"))
+save("line_barnett",       file = file.path(maps_path, "line_barnett.RData"))
+save("line_cana_woodford", file = file.path(maps_path, "line_cana_woodford.RData"))
+
+save("text_mods2",    file = file.path(maps_path, "text_mods2.RData"))
+save("line_barnett2", file = file.path(maps_path, "line_barnett2.RData"))
+save("line_cana_woodford2", file = file.path(maps_path, "line_cana_woodford2.RData"))
+```
