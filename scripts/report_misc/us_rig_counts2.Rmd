@@ -1,0 +1,574 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r load_extra_packages}
+library(ggrepel)
+library(magick)
+library(lemon)
+library(ggalt)
+```
+
+```{r load_counties_map}
+load(file.path("~/R/misc/maps", "counties_2014_adjusted_simp.RData"))
+
+# Remove uneeded polygons
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+  filter(!(STATE == "PR" | STATE == "VI")) %>%
+  filter(!is.na(NAME)) %>%
+  left_join(state_lookup, c("STATE" = "state_abb")) %>%
+  mutate_at(vars(state_name, NAME), toupper)
+
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+  mutate(NAME = str_replace(NAME, "^SAINT", "ST\\."),
+         NAME = str_replace(NAME, "^DEWITT", "DE WITT"))
+```
+
+```{r new_theme}
+pad_percent <- function (x) str_pad(percent(x), 4)
+
+theme_g10v2 <- function () {
+  theme_g10() +
+    theme(axis.title = element_blank(),
+          axis.line = element_line(color = "gray50"),
+          panel.grid = element_blank())
+}
+
+theme_g10v3 <- function () {
+  theme_g10() +
+    theme(axis.title = element_blank(),
+          axis.line = element_line(color = "gray50"),
+          panel.grid.major.y = element_line(color = "gray30", linetype = "dotted"),
+          panel.grid.major.x = element_blank())
+}
+```
+
+```{r post_crash_recovery_index}
+
+# LEFT ALIGN TITLE: https://stackoverflow.com/questions/25401111/left-adjust-title-in-ggplot2-or-absolute-position-for-ggtitle
+
+recovery <- rc_basin %>%
+    mutate(basin = if_else(basin == "Others", "Other Basins", basin)) %>%
+    filter(grepl("Total", key) & Date >= as.Date("2014-12-01")) %>%
+    group_by(basin) %>%
+    arrange(Date) %>%
+    mutate(index = (value / value[1L]) * 100,
+           col = if_else(index[max(row_number())] >= 100, "positive", "negative")) %>%
+    ungroup()
+
+recovery_last_row <- recovery %>%
+  group_by(basin) %>%
+  arrange(Date) %>%
+  filter(row_number() == max(row_number()))
+
+rec_plot <- recovery %>%
+  ggplot() +
+  geom_xspline(aes(Date, index, group = basin, color = col), alpha = 0.8) +
+  geom_text_repel(aes(Date, index, group = basin, label = basin),
+                  recovery_last_row, color = "gray90", hjust = 0, box.padding = 0.05, direction = "y", size = 3, nudge_x = 60, segment.alpha = 0.3) +
+  scale_color_manual(values = c("brown", "steelblue")) +
+  scale_x_date(limits = c(as.Date("2014-12-01"), as.Date("2018-06-01")),
+               minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  guides(color = FALSE) +
+  labs(y = "Index (Start = 2014-01-01)",
+       title = "Recovery In The Oil And Gas Basins",
+       subtitle = "Three basins have managed to recover since the 2014 price crash.",
+       caption = "Source: Baker Hughes") +
+  theme_g10v3() +
+  theme(axis.title.x.top = element_text(color = "gray90", hjust = 0,
+                                        margin = margin(2, 0, 0, 0, "lines")),
+        plot.caption = element_text(hjust = 0))
+
+rec_grob <- ggplotGrob(rec_plot)
+
+title_row <- which(rec_grob$layout$name == "title")
+subtitle_row <- which(rec_grob$layout$name == "subtitle")
+
+rec_grob$layout$l[title_row] <- 2
+rec_grob$layout$l[subtitle_row] <- 2
+
+y_lab <- textGrob("\nIndexed Rig Count\n(Start = 2014-12-01)",
+                  unit(0, "npc"), unit(0, "npc"), hjust = 0, vjust = 0.75,
+                  # hjust = 0,
+                  gp = gpar(fontsize = 9, family = "Open Sans", col = "gray90"))
+
+xlabt_row <- which(rec_grob$layout$name == "xlab-t")
+rec_grob$grobs[[xlabt_row]] <- y_lab
+rec_grob$layout$l[xlabt_row] <- 2
+rec_grob$grobs[[xlabt_row]]$gp$fill <- "gray10"
+
+caption_row <- which(rec_grob$layout$name == "caption")
+rec_grob$layout$l[caption_row] <- 2
+
+grid.newpage()
+grid.draw(rec_grob)
+
+ggsave("_draft/recovery.png", rec_grob, width = 850 / 100, height = 500 / 100, dpi = 100)
+
+image_read("_draft/recovery.png") %>%
+    image_annotate("Luke Smith (@lksmth)",
+                   location = geometry_point(715, 479),
+                   color = "gray90", size = 13, font = "Open Sans") %>%
+    image_write("_draft/recovery.png")
+```
+
+<!--  -->
+<!-- Share of each trajectory: Total Rig Count -->
+<!--  -->
+
+```{r total_count_trajectories}
+# Post-crash to present
+trj <- rc_master %>%
+  filter(PublishDate >= as.Date("2014-12-01") & Country == "UNITED STATES") %>%
+    group_by(PublishDate, Trajectory) %>%
+    summarize(RigCount = sum(RigCount)) %>%
+    mutate(Traj_Per = RigCount / sum(RigCount)) %>%
+    ungroup()
+
+trj_labels <- trj %>%
+  group_by(Trajectory) %>%
+  filter(PublishDate == max(PublishDate)) %>%
+  ungroup()
+
+p <- ggplot(trj, aes(PublishDate, Traj_Per)) +
+  geom_line(aes(group = Trajectory, color = Trajectory)) +
+  geom_text_repel(aes(color = Trajectory, label = Trajectory), trj_labels, point.padding = 0.5, direction = "y") +
+  scale_color_brewer(palette = "Set3") +
+  scale_y_continuous(labels = percent) +
+  guides(color = FALSE) +
+  labs(title = "Rig Count Trajectories",
+       subtitle = "Percent of weekly rig count",
+       caption = "Source: Baker Hughes") +
+  theme_g10v3() +
+  theme(plot.title = element_text(size = 16, margin = margin(0.2, 0, 0.5, 0, "lines")),
+        plot.caption = element_text(hjust = 0), panel.grid.minor = element_blank())
+
+pg <- ggplotGrob(p)
+
+pg$layout$l[[which(pg$layout$name == "title")]]    <- 2
+pg$layout$l[[which(pg$layout$name == "subtitle")]] <- 2
+pg$layout$l[[which(pg$layout$name == "caption")]]  <- 2
+
+ggsave("trajectories.png", pg, width = 736/100, height = 500/100, dpi = 100)
+
+image_read("trajectories.png") %>%
+  image_annotate("Luke Smith (@lksmth)",
+                 location = geometry_point(603, 480),
+                 font = "Open Sans", color = "gray90", size = 13) %>%
+  image_write("trajectories.png")
+```
+
+```{r basin_trajectory_data}
+trjs      <- unique(rc_master$Trajectory)
+rep_dates <- unique(rc_master$PublishDate)
+basins    <- unique(rc_master$Basin)
+drill_for <- unique(rc_master$DrillFor)
+
+join_tbl <- as_tibble(expand.grid(PublishDate = rep_dates,
+                                  Trajectory = trjs,
+                                  Basin = basins,
+                                  DrillFor = drill_for))
+
+# Summarize rig count by each date, basin, trajectory,
+#   and what was drilled for.
+# Then right join for missing dates
+
+g_vars <- quos(PublishDate, Trajectory, Basin, DrillFor)
+names(g_vars) <- map_chr(g_vars, rlang::quo_text)
+join_bys <- c("PublishDate", "Trajectory", "Basin", "DrillFor")
+
+rcm <- rc_master %>%
+  filter(Country == "UNITED STATES") %>%
+  group_by(!!!g_vars) %>%
+  summarize(RigCount = sum(RigCount))
+
+rcm <- rcm %>%
+  ungroup() %>%
+  right_join(join_tbl, by = join_bys) %>%
+  mutate(RigCount = if_else(is.na(RigCount), 0L, RigCount))
+
+rcm <- rcm %>%
+  group_by(!!!g_vars[names(g_vars) != "Trajectory"]) %>%
+  mutate(trj = RigCount / sum(RigCount)) %>%
+  ungroup()
+
+rcm2 <- rcm %>%
+  group_by(!!!g_vars[names(g_vars) != "DrillFor"]) %>%
+  summarize(RigCount = sum(RigCount)) %>%
+  ungroup()
+
+rcm2 <- rcm2 %>%
+  group_by(PublishDate, Basin) %>%
+  mutate(trj = RigCount / sum(RigCount))
+  
+trj_levels <- c("Horizontal", "Vertical", "Directional", "Other")
+```
+
+```{r trj_by_basin_drillfor}
+
+tmp <- tempdir()
+
+plts <- rcm %>%
+    filter(DrillFor != "Miscellaneous") %>%
+    mutate(DrillFor = factor(DrillFor, levels = c("Oil", "Gas"), ordered = TRUE),
+           Trajectory = factor(Trajectory, levels = trj_levels, ordered = TRUE)) %>%
+    split(.$Basin) %>%
+    map2_chr(seq_along(.),~{
+      
+      nm <- sort(.x$Basin)[.y]
+      
+        p <- ggplot(.x) +
+            geom_line(aes(PublishDate, trj, group = Trajectory, color = Trajectory)) +
+            scale_x_date(expand = expand_scale()) +
+            scale_color_brewer(palette = "Accent") +
+            facet_wrap(~DrillFor, ncol = 2) +
+            guides(color = guide_legend(title = paste0(nm,
+                                                       " trajectories as percent of total"),
+                                        title.position = "top", label.position = "bottom",
+                                        keywidth = 5, keyheight = 0.5,
+                                        label.hjust = 0.5)) +
+            theme_g10() +
+            theme(panel.grid = element_blank(),
+                  axis.line = element_line(color = "gray50"),
+                  strip.text.y = element_text(angle = 0),
+                  plot.margin = unit(c(0, 0.5, 0.1, 0), "lines"),
+                  panel.spacing.x = unit(2, "lines"),
+                  legend.position = "top",
+                  legend.direction = "horizontal")
+        
+        ggsave(fp <- file.path(tmp, sprintf("trj_%s.png", .y)),
+               width = 600 / 100, height = 300 / 100, dpi = 100)
+        
+        fp
+    })
+```
+
+```{r trj_by_basin}
+p_rcm2 <- rcm2 %>%
+  ungroup() %>%
+  mutate(Basin = if_else(Basin == "Other", "Other Basins", Basin)) %>%
+  mutate(Trajectory = factor(Trajectory, levels = trj_levels), ordered = TRUE) %>%
+  ggplot() +
+  geom_line(aes(PublishDate, trj, group = Trajectory, color = Trajectory)) +
+  scale_x_date(expand = expand_scale()) +
+  scale_y_continuous(expand = expand_scale(),
+                     label = percent, breaks = pretty_breaks(3)) +
+  scale_color_brewer(palette = "Set1") +
+  guides(color = guide_legend(title = paste0("Rig Count Trajectory By Basin"),
+                              title.position = "top", label.position = "top",
+                              keywidth = 5, keyheight = 0.5,
+                              label.hjust = 0.5, override.aes = list(size = 1.5))) +
+  facet_rep_wrap(~Basin) +
+  theme_g10v2() +
+  theme(axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.spacing.x = unit(1.5, "lines"),
+        panel.spacing.y = unit(0.25, "lines"),
+        plot.margin = unit(c(0, 0.75, 0.15, 0.15), "lines"),
+        strip.background = element_rect(fill = "gray10", color = "#00000000"),
+        strip.text = element_text(color = "gray90", size = 12, hjust = 0),
+        legend.background = element_rect(fill = "gray10", color = "gray10"),
+        legend.key = element_rect(fill = "gray10", color = "gray10"),
+        legend.position = "top",
+        legend.direction = "horizontal",
+        legend.title = element_text(size = 16))
+
+p_rcm2_grob <- ggplotGrob(p_rcm2)
+
+lgnd <- p_rcm2_grob$grobs[[which(p_rcm2_grob$layout$name == "guide-box")]]
+
+p_rcm2_grob$grobs[[which(p_rcm2_grob$layout$name == "guide-box")]] <- NULL
+p_rcm2_grob$layout <- p_rcm2_grob$layout[-which(p_rcm2_grob$layout$name == "guide-box"), ]
+p_rcm2_grob$grobs[[which(p_rcm2_grob$layout$name == "title")]] <- NULL
+p_rcm2_grob$layout <- p_rcm2_grob$layout[-which(p_rcm2_grob$layout$name == "title"), ]
+p_rcm2_grob$grobs[[which(p_rcm2_grob$layout$name == "subtitle")]] <- NULL
+p_rcm2_grob$layout <- p_rcm2_grob$layout[-which(p_rcm2_grob$layout$name == "subtitle"), ]
+
+grid.newpage()
+grid.draw(p_rcm2_grob)
+
+ggsave("trj_by_basin.png", p_rcm2_grob, width = 900 / 100, height = 500 / 100, dpi = 100)
+ggsave("trj_lgnd.png", lgnd, width = 415 / 100, height = 65 / 100, dpi = 100)
+
+
+trj_basins <- image_read("trj_by_basin.png") %>%
+  image_crop("x425+0+75")
+
+trj_lgnd <- image_read("trj_lgnd.png") %>%
+  image_join(image_blank(900-415, 65, "gray10")) %>%
+  image_append()
+
+trj_cap <- image_blank(900, 20, "gray10") %>%
+  image_annotate("Luke Smith (@lksmth)",
+                 location = geometry_point(753, 1),
+                 font = "Open Sans", color = "springgreen3", size = 14) %>%
+  image_annotate("Source: Baker Hughes",
+                 location = geometry_point(4, 3),
+                 font = "Open Sans", color = "gray50", size = 12)
+
+trj_lgnd %>%
+  image_join(trj_basins, trj_cap) %>%
+  image_append(stack = TRUE) %>%
+  image_write("trj_by_basin.png")
+```
+
+```{r trj_by_basin_multiples}
+# ---- FACETTED SMALL MULTIPLES
+mults <- rcm2 %>%
+  ungroup() %>%
+  mutate(Basin = if_else(Basin == "Other", "Other Basins", Basin)) %>%
+  mutate(Trajectory = factor(Trajectory, levels = trj_levels), ordered = TRUE) %>%
+  filter(Trajectory != "Other") %>%
+  ungroup() %>%
+  split(.$Basin) %>%
+  map(~{
+    ggplot(.x) +
+      geom_line(aes(PublishDate, trj, color = Trajectory),
+                   alpha = 0.8) +
+      scale_x_date(NULL, expand = expand_scale(),
+                   breaks = c(as.Date("2012-01-01"), as.Date("2016-01-01")),
+                   date_labels = "%Y") +
+      scale_y_continuous(NULL, expand = expand_scale(),
+                         label = pad_percent,
+                         breaks = pretty_breaks(2)) +
+      scale_color_brewer(palette = "Set1") +
+      guides(color = FALSE) +
+      labs(title = paste0(unique(.x$Basin), "\n")) +
+      facet_wrap(~Trajectory, scales = "free_y", labeller = pad_percent) +
+      theme_g10(base_size = 8, base_family = "Droid Sans Mono") +
+      theme(panel.grid = element_blank(),
+            panel.spacing.x = unit(0.25, "lines"),
+            strip.text = element_blank(),
+            axis.ticks = element_blank(),
+            axis.text.y = element_text(),
+            axis.line = element_line(color = "gray50"),
+            plot.title = element_text(margin = margin(0, 0, -0.5, 0, "lines")))
+    })
+
+
+mults %>%
+    map2(seq_along(.), ~ggsave(sprintf("trj_small_mult_%s.png", .y), .x, width = 350 / 100, height = 150 / 100, dpi = 100))
+
+ind <- sprintf("trj_small_mult_%s.png", seq_along(mults)) %>%
+    map(image_read) %>%
+    map(image_border, color = "gray10", geometry = "12x10") %>%
+    image_join()
+
+col_1 <- image_join(ind[seq(1, 15, by = 3)]) %>% image_append(stack = TRUE)
+col_2 <- image_join(ind[seq(2, 15, by = 3)]) %>% image_append(stack = TRUE)
+col_3 <- image_join(ind[seq(3, 15, by = 3)]) %>% image_append(stack = TRUE)
+
+image_append(c(col_1, col_2, col_3))
+
+
+mults_lgnd <- mults$`Ardmore Woodford` +
+  guides(color = guide_legend(title = paste0("Rig Count Trajectory By Basin"),
+                              title.position = "top", label.position = "top",
+                              keywidth = 5, keyheight = 0.5,
+                              label.hjust = 0.5, override.aes = list(size = 1.5))) +
+  theme(legend.background = element_rect(fill = "gray10", color = "gray10"),
+        legend.key = element_rect(fill = "gray10", color = "gray10"),
+        legend.position = "top",
+        legend.direction = "horizontal",
+        legend.title = element_text(size = 16))
+
+mults_lgnd <- g_legend(mults_lgnd)
+
+```
+
+<!--  -->
+<!-- County map -->
+<!--  -->
+
+```{r trj_by_county}
+by_loc <- quos(PublishDate, `State/Province`, County, Basin, Trajectory)
+names(by_loc) <- by_loc %>% map_chr(rlang::quo_text)
+
+rcm_loc <- rc_master %>%
+  filter(Country == "UNITED STATES") %>%
+  group_by(!!!by_loc) %>%
+  summarize(RigCount = sum(RigCount)) %>%
+  ungroup()
+
+join_bys <- names(by_loc)
+
+# We need ALL of these, not just the range in the following groupings
+rep_dates <- unique(rc_master$PublishDate)
+trjs      <- unique(rc_master$Trajectory)
+
+# Get unique locations
+locs <- rcm_loc %>% distinct(County, `State/Province`, Basin)
+
+# Turn unique locations into a right join table
+join_tbl_loc <- list(data.frame(PublishDate = rep_dates),
+                     data.frame(Trajectory = trjs),
+                     locs) %>%
+    reduce(merge)
+
+rcm_loc <- rcm_loc %>%
+  right_join(join_tbl_loc, by = join_bys)
+
+rcm_loc <- rcm_loc %>%
+  group_by(!!!by_loc[-c(5)]) %>%
+  mutate(RigCount = if_else(is.na(RigCount), 0L, RigCount)) %>%
+  mutate(trj = RigCount / sum(RigCount)) %>%
+  ungroup()
+
+# -----------
+# -- NO JOINS
+# -----------
+
+# These locations did not join. Why? Because they are offshore, or the
+# difference in spelling of the counties in the two datasets has not
+# been reconciled.
+
+no_joins <- rcm_loc %>%
+    filter(PublishDate == max(PublishDate)) %>%
+    filter(Trajectory == "Horizontal") %>%
+    filter(!is.na(trj)) %>%
+    anti_join(counties_2014_adjusted_simp,
+               c("County" = "NAME", "State/Province" = "state_name"))
+
+no_joins %>%
+    semi_join(distinct(rc_master), by = join_bys[-5])
+
+# ---------
+# ---- PLOT
+# ---------
+
+# These are the locations that will not join for the current date.
+
+no_joins_plot <- rcm_loc %>%
+    filter(PublishDate == max(PublishDate)) %>%
+    group_by(!!!by_loc[-5]) %>%
+    filter(sum(RigCount) > 0) %>%
+    ungroup() %>%
+    anti_join(counties_2014_adjusted_simp,
+               c("County" = "NAME", "State/Province" = "state_name")) %>%
+    distinct(!!!by_loc[-5])
+
+loc_plot <- rcm_loc %>%
+  filter(PublishDate == max(PublishDate)) %>%
+  group_by(!!!by_loc[-5]) %>%
+  filter(sum(RigCount) > 0) %>%
+  ungroup() %>%
+  filter(Trajectory == "Horizontal") %>%
+  inner_join(counties_2014_adjusted_simp,
+             c("County" = "NAME", "State/Province" = "state_name")) %>%
+  ggplot() +
+  geom_sf(data = counties_2014_adjusted_simp, fill = "gray50") +
+  geom_sf(aes(fill = trj)) +
+  scale_fill_viridis_c(labels = percent) +
+  guides(fill = guide_colorbar(title = paste0("% Horizontal (",
+                                              pretty_date(max(rcm_loc$PublishDate)), ")"),
+                               title.position = "top",
+                               label.position = "bottom", raster = FALSE,
+                               barwidth = .5, barheight = .05, default.unit = "npc",
+                               ticks = FALSE)) +
+  coord_sf(datum = NA) +
+  labs(title = "Which counties have high concentrations\nof horizontal rigs?") +
+  theme_g10(base_family = "Bitstream Vera Sans Mono") +
+  theme(legend.position = "top",
+        legend.justification = "left",
+        legend.direction = "horizontal",
+        plot.margin = unit(c(0.4, 0, 0, 0.5), "lines"),
+        plot.title = element_text(size = 24),
+        legend.margin = margin(0, 0, 0, 0),
+        legend.background = element_rect(fill = "#00000000", color = "#00000000"))
+
+ggsave("trj_by_county.png", loc_plot,
+       width = 1200 / 100, height = 845/ 100,
+       dpi = 100)
+
+image_read("trj_by_county.png") %>%
+  image_crop("1140x+29") %>%
+  image_annotate("Source: Baker Hughes",
+                 color = "gray50", font = "Bitstream Vera Sans Mono", size = 11,
+                 location = geometry_point(5, 825)) %>%
+  image_annotate("Luke Smith (@lksmth)",
+                 color = "springgreen", font = "Bitstream Vera Sans Mono", size = 13,
+                 location = geometry_point(975, 825)) %>%
+  image_write("trj_by_county.png")
+```
+
+```{r}
+base_title %>%
+    image_join(base_lgnd, base_img) %>%
+    image_append(stack = TRUE) %>%
+    image_annotate("Source: Baker Hughes", location = geometry_point(5, 762),
+                   font = "Open Sans", color = "gray50", size = 12) %>%
+    image_annotate("Luke Smith (@lksmth)", location = geometry_point(880, 760),
+                   font = "Open Sans", color = "springgreen", size = 14) %>%
+    image_write("trj_by_loc.png")
+```
+
+<!--  -->
+<!-- Well Depth -->
+<!--  -->
+
+```{r well_depth}
+wd_levels <- rev(c(NA, "<5k", "5k-10k", "10k-15k", ">15k"))
+
+rc_master %>%
+  count(Year, WellDepth) %>%
+  group_by(Year) %>%
+  mutate(n_per = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(WellDepth = factor(WellDepth, levels = wd_levels, ordered = TRUE)) %>%
+  ggplot() +
+  geom_col(aes(Year, n_per, fill = WellDepth), position = "fill", width = 1) +
+  scale_x_continuous(NULL, expand = expand_scale()) +
+  scale_y_continuous(NULL, expand = expand_scale()) +
+  scale_fill_viridis_d(na.value = "gray30") +
+  theme_g10()
+```
+
+```{r price_and_total_count}
+trc_price <- rc_og %>%
+  left_join(oil_price, by = c("Date" = "date")) %>%
+  filter(!is.na(price))
+
+trc_price %>%
+  ggplot() +
+  stat_density_2d(aes(Total, price, fill = ..density..), geom = "raster", contour = FALSE) +
+  geom_point(aes(Total, price), filter(trc_price, Date == max(Date)), color = "brown", size = 1.6) +
+  scale_fill_viridis_c() +
+  scale_x_continuous(expand = expand_scale()) +
+  scale_y_continuous(expand = expand_scale()) +
+  guides(fill = FALSE) +
+  theme_g10()
+```
+
+```{r summary_plots}
+# Pre-crash to present
+rc_basin %>%
+  filter(grepl("Total", key)) %>%
+  ggplot() +
+  geom_line(aes(Date, value, group = key),
+            color = nord::nord_palettes$lake_superior[2L]) +
+  scale_x_date(expand = expand_scale()) +
+  # scale_y_continuous(expand = expand_scale()) +
+  facet_wrap(~basin, scales = "free") +
+  theme_g10() +
+  theme(panel.grid.major = element_blank(),
+        axis.line.x = element_line(color = "gray50"),
+        axis.line.y = element_line(color = "gray50"),
+        plot.margin = unit(c(0, 0.6, 0.1, 0), "lines"))
+
+# Post-crash to present
+rc_basin %>%
+  filter(grepl("Total", key) & Date >= as.Date("2014-12-01")) %>%
+  ggplot() +
+  geom_line(aes(Date, value, group = key),
+            color = nord::nord_palettes$lake_superior[2L]) +
+  scale_x_date(expand = expand_scale()) +
+  # scale_y_continuous(expand = expand_scale()) +
+  facet_wrap(~basin, scales = "free") +
+  theme_g10() +
+  theme(panel.grid.major = element_blank(),
+        axis.line.x = element_line(color = "gray50"),
+        axis.line.y = element_line(color = "gray50"),
+        plot.margin = unit(c(0, 0.6, 0.1, 0), "lines"))
+```

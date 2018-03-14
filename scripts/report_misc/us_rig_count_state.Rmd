@@ -1,0 +1,156 @@
+---
+title  : "US Rig Counts: States"
+author : "Luke Smith"
+date   : "2017-10-06"
+tags   : [r, oil, gas, oil and gas, rig counts, states]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+---
+  
+```{r setup_lib_std, include=FALSE}
+# ---- Library_Tidyverse_Setup
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(stringi)
+
+# ---- Library_ploting_Setup
+library(grid)
+library(gridExtra)
+library(ggExtra)
+library(GGally)
+library(ggalt)
+library(scales)
+library(extrafont)
+
+# ---- Library_Web_Setup
+library(rvest)
+library(jsonlite)
+
+# ---- Library_Reporting_Setup
+library(knitr)
+library(kableExtra)
+
+# ---- My_Blogging_Setup
+library(blg)
+```
+
+```{r knitr_opts_chunk_std, include=FALSE}
+# ---- Opts_Setup
+knitr::opts_chunk$set(echo =  FALSE)
+knitr::opts_chunk$set(fig.height = 7)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r knitr_opts_hooks_std, include=FALSE}
+# ---- knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot   <- knit_hooks$get("plot")
+
+# ---- Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(stringr::str_to_title(x)) else
+      return(x)
+})
+
+old_inline <- knit_hooks$get("inline")
+```
+
+```{r r_opts_std, include=FALSE}
+# ---- R_Options_Setup
+old_scipen <- getOption("scipen")
+options(scipen = 100)
+
+old_digits <- getOption("digits")
+options(digits = 2)
+```
+
+```{r r_misc_std, include=FALSE}
+loadfonts("win")
+
+my_blue   <- "#0059B3"
+my_orange <- "#B35A00"
+my_pink   <- "#B30059"
+my_green  <- "#59B300"
+```
+
+<!-- Extra setup -->
+  
+```{r setup_lib_extra, include=FALSE}
+library(sf)
+library(httr)
+library(magick)
+library(geojsonio)
+```
+
+```{r r_misc_extra, include=FALSE}
+theme_set(blg_theme_default())
+```
+
+<!-- Load data -->
+
+```{r load_data}
+ref1 <- "~/R/misc/oil/US/rig_counts"
+ref2 <- "~/R/misc/maps"
+
+# Rig count - master
+load(file.path(ref1, "rc_master.RData"))
+
+# US states map (Albers projection)
+load(file.path(ref2, "states_map_adjusted.RData"))
+```
+
+```{r tidy_states_map_adjusted}
+us_map <- states_map_adjusted %>%
+  filter(!(STATE_ABBR == "PR" | STATE_ABBR == "VI") & TYPE == "Land") %>%
+  select(-(STATE_FIPS:PRIM_MILES))
+```
+
+```{r tidy_rc_master}
+rc_master <- rc_master %>%
+    mutate(County = str_replace(County, "^ST\\.", "SAINT"),
+           County = str_replace(County, "DE WITT", "DEWITT"))
+```
+
+<!-- Analysis -->
+
+```{r current_week_location}
+rc_master %>%
+    filter(PublishDate == max(PublishDate)) %>%
+    filter(Country == "UNITED STATES") %>%
+    distinct(`State/Province`) %>%
+    inner_join(us_map %>% mutate_at(vars(NAME), toupper), c("State/Province" = "NAME")) %>%
+    ggplot() +
+    geom_sf(data = us_map, color = "black", fill = "gray40") +
+    geom_sf(fill = clrs$orange, color = "black") +
+    coord_sf(datum = NA)
+```
+
+```{r rig_count_number_change}
+rc_master %>%
+    filter(PublishDate == max(PublishDate) | PublishDate == sort(unique(PublishDate), TRUE)[2]) %>%
+    group_by(`State/Province`, `County`, `DrillFor`, PublishDate) %>%
+    summarize(n = n()) %>%
+    ungroup() %>%
+    group_by(County, DrillFor, `State/Province`) %>%
+    arrange(PublishDate) %>%
+    mutate(change = n - lag(n, 1L)) %>%
+    ungroup() %>%
+    filter(PublishDate == max(PublishDate)) %>%
+    inner_join(us_map %>% mutate_at(vars(NAME), toupper), c("State/Province" = "NAME")) %>%
+    st_as_sf() %>%
+    ggplot() +
+    geom_sf(data = us_map, fill = "white", color = "black") +
+    geom_sf(aes(fill = change), color = "black") +
+    scale_fill_gradient2(low = clrs$red, high = clrs$blue, mid = "white", na.value = "gray40")
+```

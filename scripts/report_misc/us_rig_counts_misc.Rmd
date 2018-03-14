@@ -1,0 +1,279 @@
+---
+title  : "US Rig Counts: Miscellaneous"
+author : "Luke Smith"
+date   : "2017-10-06"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+---
+
+```{r setup_lib_std, include=FALSE}
+# ---- Library_Tidyverse_Setup
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(stringi)
+
+# ---- Library_ploting_Setup
+library(grid)
+library(gridExtra)
+library(ggExtra)
+library(GGally)
+library(ggalt)
+library(scales)
+library(extrafont)
+
+# ---- Library_Web_Setup
+library(rvest)
+library(jsonlite)
+
+# ---- Library_Reporting_Setup
+library(knitr)
+library(kableExtra)
+
+# ---- My_Blogging_Setup
+library(blg)
+```
+
+```{r knitr_opts_chunk_std, include=FALSE}
+# ---- Opts_Setup
+knitr::opts_chunk$set(echo =  FALSE)
+knitr::opts_chunk$set(fig.height = 7)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r knitr_opts_hooks_std, include=FALSE}
+# ---- knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot   <- knit_hooks$get("plot")
+
+# ---- Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(stringr::str_to_title(x)) else
+      return(x)
+})
+
+old_inline <- knit_hooks$get("inline")
+```
+
+```{r r_opts_std, include=FALSE}
+# ---- R_Options_Setup
+old_scipen <- getOption("scipen")
+options(scipen = 100)
+
+old_digits <- getOption("digits")
+options(digits = 2)
+```
+
+```{r r_misc_std, include=FALSE}
+loadfonts("win")
+
+my_blue   <- "#0059B3"
+my_orange <- "#B35A00"
+my_pink   <- "#B30059"
+my_green  <- "#59B300"
+```
+
+<!-- Extra setup -->
+
+```{r setup_lib_extra, include=FALSE}
+library(sf)
+library(httr)
+library(magick)
+library(geojsonio)
+```
+
+```{r r_misc_extra, include=FALSE}
+theme_set(blg_theme_default())
+```
+
+<!-- Animated plots; ideas -->
+
+```{r tween_prep, include=FALSE, eval=FALSE}
+# Need the right variables
+t <- master_type %>%
+  select(Basin, PublishDate, hz) %>%
+  rename(x = PublishDate, y = hz, id = Basin)
+
+# Need to ensure that all dates appear in each split
+unique_dates <- t %>% distinct(x)
+
+# tweenr will not accept missing rows (missing dates in this case)
+t <- t %>%
+  split(.$id) %>%
+  map(function(x) {
+    missing_dates <- anti_join(unique_dates, x)
+    if (nrow(missing_dates) > 0) {
+        x <- add_row(x,
+                     id = x$id[1],
+                     x  = missing_dates$x,
+                     y  = rep(0, nrow(missing_dates)))
+    }
+    return(x)
+    }) %>%
+  bind_rows()
+
+# NA's suck...in this case.
+#   How did they even happen?
+t <- t %>%
+  mutate(y = if_else(is.na(y), 0, y))
+
+# tween_states needs a list of data frames
+#   and to make a repeating loop we need
+#   to mesh the beginning and the end (
+#   by repeating the beginning at the end)
+t <- t %>%
+  split(.$id) %>%
+  c(.[1])
+
+# Rows must be in order to be properly
+#   interpolated.
+t <- t %>%
+  map(arrange, x)
+
+
+# Non-numerics need to be protected
+#   by converting to factor
+t <- t %>%
+  map(~mutate(.x,
+              id = as.factor(id),
+              x  = as.factor(x))
+      )
+```
+
+```{r tween_exec, include=FALSE, eval=FALSE}
+t_tween <- t %>%
+  tween_states(1, 0.7, "cubic-in-out", 200) %>%
+  as_tibble()
+
+t_tween <- t_tween %>%
+  mutate(id = as.character(id),
+         x  = as.Date(x))
+```
+
+```{r plot_tweenr_hz, include=FALSE, eval=FALSE}
+td <- tempdir()
+
+  
+map_chr(unique(t_tween$.frame), ~{
+  
+  
+  d <- filter(t_tween, .frame == .x)
+  gg <- ggplot(d, aes(frame = .frame)) +
+    geom_line(aes(x, y)) +
+    labs(title = paste0("Horizontal-rig makeup of various US",
+                        "\noil and gas basins."),
+         subtitle = paste0("Basin: ", unique(d$id), "\n"),
+         x = paste0("Date"),
+         y = paste0("Percent horizontal (%)"),
+         caption = paste0("Source: Baker Hughes Rig Count")) +
+    scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1.0),
+                       limits = c(0, 1),
+                       labels = blg_frmt_percent(0)) +
+    scale_x_date(limits = c(as.Date("2011-01-01"), as.Date("2018-04-01"))) +
+    theme(axis.title.y = element_text(size = 12),
+          plot.caption = element_text(size = 10, color = "gray50"))
+  
+  fil <- file.path(td, sprintf("%04d.png", as.integer(.x)))
+
+  ggsave(fil, gg, , units = "in", width=6, height=3.5)
+  
+  fil
+  
+}) %>% 
+  map(image_read) %>%
+  map(image_scale, geometry = "675x") %>%
+  image_join() %>% 
+  image_animate() %>% 
+  image_write("animated.gif")
+```
+
+```{r plot_tweenr_type, include=FALSE, eval=FALSE}
+td <- tempdir()
+
+map_chr(unique(summ_animate$Date), ~{
+    d <- filter(summ_animate, Date == .x)
+    gg <- ggplot(d) +
+        geom_line(aes(Date, value, color = key), size = 0.7) +
+        geom_text(aes(x, y, group = key, color = key, label = label),
+                  summ_text) +
+        scale_x_date(limits = c(as.Date("2011-01-01"), as.Date("2018-04-01"))) +
+        scale_y_continuous(limits = c(0, 2100),
+                           labels = comma) +
+        scale_color_manual(values = c(
+            # "#004A94",
+            "#01665E",
+            # "#004A94",
+            "#8C510A",
+            "black")) +
+        guides(color = FALSE) +
+        labs(title = "Rig count by well type",
+             y = "Rig count") +
+        blg_theme_default(12)
+    
+    fil <- file.path(td, sprintf("%04d.png", as.integer(.x)))
+    
+    ggsave(fil, gg, , units = "in", width=6, height=3.5)
+    
+    fil
+    
+}) %>%
+    map(image_read) %>%
+    map(image_scale, geometry = "675x") %>%
+    image_join() %>%
+    image_animate() %>%
+    image_write("rig_count_animate.gif")
+```
+
+
+
+```{r map_conversion, include=FALSE, eval=FALSE}
+# Dissolved USA map
+usa_map <- states_48 %>%
+  st_union()
+
+usa_map <- tibble(thing = "Other US Basins", geometry = st_geometry(usa_map)) %>%
+  st_sf() %>%
+  st_transform(4269) %>%
+  st_set_crs(4269)
+
+geojson_write(usa_map, file = "C:/Users/Luke/D3/data/geo_usa_map.json")
+
+## Plays with dissolved USA map
+
+basins_map <- sf_plays_total %>%
+  select(Shale_play, geometry) %>%
+  rename(thing = Shale_play) %>%
+  st_transform(4269) %>%
+  st_set_crs(4269)
+
+basins_map[8, ]$geometry <- st_geometry(st_union(basins_map[8, ],
+                                                 basins_map[8, ]))
+
+geojson_write(basins_map, file = "C:/Users/Luke/D3/data/geo_basins_map.json")
+
+new_map <- usa_map %>%
+  rbind(basins_map)
+
+geojson_write(new_map, file = "C:/Users/Luke/D3/data/geo_new_map.json")
+
+## USA map with holes
+
+new_usa_map <- usa_map %>%
+  st_difference(st_union(basins_map))
+
+newest_map <- basins_map %>%
+  rbind(new_usa_map)
+
+geojson_write(st_transform(newest_map, 4269), file = "C:/Users/Luke/D3/data/geo_newest_map.json")
+```

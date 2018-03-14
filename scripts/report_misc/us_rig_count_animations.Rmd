@@ -1,0 +1,347 @@
+---
+title  : "US Rig Counts"
+author : "Luke Smith"
+date   : "2017-10-06"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+---
+  
+```{r setup_std, include=FALSE, purl=FALSE, eval=TRUE}
+# ---- Library_Tidyverse_Setup
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(stringi)
+
+# ---- Library_ploting_Setup
+library(grid)
+library(gridExtra)
+library(ggExtra)
+library(GGally)
+library(ggalt)
+library(scales)
+library(extrafont)
+loadfonts("win")
+
+# ---- Library_Web_Setup
+library(rvest)
+library(jsonlite)
+
+# ---- Library_Reporting_Setup
+library(knitr)
+library(kableExtra)
+
+# ---- My_Blogging_Setup
+library(blg)
+
+# ---- Opts_Setup
+knitr::opts_chunk$set(echo =  FALSE)
+knitr::opts_chunk$set(fig.height = 7)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(purl = FALSE)
+
+# ---- R_Options_Setup
+old_scipen <- getOption("scipen")
+options(scipen = 100)
+
+old_digits <- getOption("digits")
+options(digits = 2)
+
+
+# ---- knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot   <- knit_hooks$get("plot")
+
+
+# ---- Hooks_Setup
+
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(stringr::str_to_title(x)) else
+      return(x)
+})
+
+old_inline <- knit_hooks$get("inline")
+
+my_blue   <- "#0059B3"
+my_orange <- "#B35A00"
+my_pink   <- "#B30059"
+my_green  <- "#59B300"
+```
+
+```{r setup_extra, include=FALSE}
+library(sf)
+library(httr)
+library(magick)
+library(geojsonio)
+
+theme_set(blg_theme_default())
+```
+
+```{r load_data}
+ref1 <- "~/R/misc/oil/price"
+ref2 <- "~/R/misc/oil/US/rig_counts"
+ref3 <- "~/R/misc/oil/US/production"
+ref4 <- "~/R/misc/maps"
+
+# Oil price
+load(file.path(ref1, "oil_price.RData"))
+
+# Rig count - basins
+load(file.path(ref2, "rc_basin.RData"))
+
+# Rig count - master
+load(file.path(ref2, "rc_master.RData"))
+
+# Rig count - state oil and gas split
+load(file.path(ref2, "rc_og.RData"))
+
+# State production
+load(file.path(ref3, "state_prod.RData"))
+
+# US counties map (Albers projection)
+load(file.path(ref4, "counties_2014_adjusted.RData"))
+
+# US states map (Albers projection)
+load("~/R/misc/maps/states_map_adjusted.RData")
+```
+
+```{r tidy_og_split, include=FALSE}
+rc_og <- rc_og %>%
+  left_join(oil_price, by = c("Date" = "date"))
+
+rc_og %>%
+  ggplot(aes(Oil, price)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~cut_interval(`% Oil`, 4))
+```
+
+```{r tidy_rc_master}
+rc_master <- rc_master %>%
+    mutate(County = str_replace(County, "^ST\\.", "SAINT"),
+           County = str_replace(County, "DE WITT", "DEWITT"))
+```
+
+```{r tidy_counties_2014_adjusted}
+counties_2014_adjusted <- counties_2014_adjusted %>%
+  filter(!(STATE == "PR" | STATE == "VI")) %>%
+  filter(!is.na(NAME)) %>%
+  left_join(state_lookup, c("STATE" = "state_abb")) %>%
+  mutate_at(vars(state_name, NAME), toupper)
+```
+
+```{r tidy_states_map_adjusted}
+us_map <- states_map_adjusted %>%
+  filter(!(STATE_ABBR == "PR" | STATE_ABBR == "VI") & TYPE == "Land") %>%
+  select(-(STATE_FIPS:PRIM_MILES))
+```
+
+```{r random_plots}
+# price ~ Oil
+# Faceted by year intervals
+rc_og %>%
+  ggplot(aes(Oil, price, color = cut_interval(year(Date), 4))) +
+  geom_point(alpha = 1/6) +
+  geom_smooth(method = "lm", color = clrs$blue) +
+  facet_wrap(~cut_interval(year(Date), 4)) +
+  scale_color_manual(values = c(clrs$red, clrs$lightred, clrs$lightgreen_4, clrs$green_4)) +
+  guides(color = FALSE)
+
+# price ~ Oil
+# Faceted by `% Oil` intervals
+rc_og %>%
+  filter(year(Date) >= 2007) %>%
+  ggplot(aes(Oil, price)) +
+  geom_point(aes(color = Date), alpha = 1/2) +
+  geom_smooth(method = "lm", color = clrs$blue) +
+  facet_wrap(~cut_interval(`% Oil`, 4)) +
+  guides(color = FALSE)
+
+# Total ~ Oil
+# Faceted by `price` intervals
+rc_og %>%
+  filter(year(Date) >= 2007 & !is.na(price)) %>%
+  ggplot(aes(Oil, Total)) +
+  geom_point(aes(color = Date), alpha = 1/2) +
+  geom_smooth(method = "lm", color = clrs$blue) +
+  facet_wrap(~cut_interval(`price`, 4)) +
+  guides(color = FALSE)
+```
+
+
+```{r rc_og_monthly}
+rc_og_m <- rc_og %>%
+  select(-`% Oil`, -`% Gas`) %>%
+  group_by(Date = zoo::as.yearmon(Date)) %>%
+  summarise_all(mean, na.rm = TRUE)
+```
+
+```{r join}
+## Join:
+#  state_prod
+#  rc_og_m
+stp <- state_prod %>%
+  mutate(date = zoo::as.yearmon(date)) %>%
+  left_join(rc_og_m, c("date" = "Date"))
+
+# Bye-bye other Alaska's
+
+stp <- stp %>%
+  filter(!(location %in% c("Alaska North Slope", "Alaska South"))) %>%
+  filter(!grepl("\\(PADD", location))
+```
+
+```{r join_plots}
+stp %>%
+  filter(grepl("Texas|North Dakota|Colorado|Oklahoma|California", location)) %>%
+  ggplot(aes(production, Oil)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~location, scales = "free")
+
+stp %>%
+  filter(!grepl("U\\.S\\.", location)) %>%
+  filter(date >= (max(date) - 10)) %>%
+  group_by(location) %>%
+  arrange(date) %>%
+  mutate(diff = production - production[1]) %>%
+  select(location, date, production, diff) %>%
+  ungroup() %>%
+  ggplot(aes(date, diff, group = location)) +
+  geom_line()
+
+# Just US data
+us_only <- stp %>%
+  filter(grepl("U\\.S\\.", location)) %>%
+  filter(date >= (max(date) - 10)) %>%
+  arrange(date) %>%
+  select(location, date, production) %>%
+  spread(location, production) %>%
+  mutate(diff_US = U.S. - U.S.[1])
+
+stp %>%
+  filter(!grepl("U\\.S\\.", location)) %>%
+  filter(date >= (max(date) - 10)) %>%
+  left_join(us_only) %>%
+  select(-(Oil:price)) %>%
+  group_by(location) %>%
+  arrange(date) %>%
+  mutate(state_percent = production / U.S.,
+         diff = production - production[1]) %>%
+  ungroup() %>%
+  ggplot(aes(date, state_percent, group = location)) +
+  geom_line()
+
+stp %>%
+  filter(!grepl("U\\.S\\.", location)) %>%
+  filter(date >= (max(date) - 10)) %>%
+  left_join(us_only) %>%
+  select(-(Oil:price)) %>%
+  group_by(location) %>%
+  arrange(date) %>%
+  mutate(state_percent = production / U.S.,
+         diff = production - production[1],
+         diff_percent = diff / diff_US) %>%
+  ungroup() %>%
+  select(location, date, state_percent, diff_percent) %>%
+  gather(... = -c(location, date)) %>%
+  ggplot(aes(date, value, group = location)) +
+  geom_line() +
+  facet_wrap(~key, scales = "free_y")
+
+# Slope chart
+stp %>%
+  filter(!grepl("U\\.S\\.", location)) %>%
+  filter(date >= (max(date) - 10)) %>%
+  left_join(us_only) %>%
+  select(-(Oil:price)) %>%
+  group_by(location) %>%
+  arrange(date) %>%
+  mutate(state_percent = production / U.S.,
+         diff = production - production[1],
+         diff_percent = diff / diff_US) %>%
+  ungroup() %>%
+  select(location, date, state_percent, diff_percent) %>%
+  filter(date == max(date) | date == min(date)) %>%
+  mutate(diff_percent = if_else(is.na(diff_percent), 0, diff_percent)) %>%
+  gather(... = -c(location, date)) %>%
+  ggplot(aes(date, value, group = location)) +
+  geom_line() +
+  facet_wrap(~key, scales = "free_y")
+```
+
+```{r animated_maps}
+## Map
+us_prod_map <- us_map %>%
+  left_join(stp, ., c("location" = "NAME")) %>%
+  st_as_sf()
+
+# us_prod_map <- us_map %>%
+#   left_join(stp, ., c("location" = "NAME"))
+
+us_prod_map %>%
+  ggplot() +
+  geom_sf(aes(fill = production))
+
+
+
+us_prod_map %>%
+  filter(date == max(date) & location != "U.S.") %>%
+  mutate(prod_cut = cut(production, breaks = c(0, 10, 60, 180, 800, 2000, 4500), right = FALSE),
+         prod_cat = as.integer(prod_cut)) %>%
+  select(location:production, prod_cat) %>%
+  ggplot() +
+  geom_sf(data = us_map, fill = "black") +
+  geom_sf(aes(fill = factor(prod_cat))) +
+  scale_fill_manual(values = rev(c("black", RColorBrewer::brewer.pal(6, "BrBG"))))
+
+
+## First animated map
+td <- tempdir()
+
+it_date <- us_prod_map %>%
+  filter(location != "U.S." & date >= 1981) %>%
+  .$date %>%
+  unique() %>%
+  sort()
+
+img <- map_chr(it_date, ~{
+  
+  dat <- select(
+    filter(
+      us_prod_map,
+      date == .x & location != "U.S."
+    ),
+    location:production)
+  
+  gg <- ggplot(dat) +
+    geom_sf(data = us_map) +
+    geom_sf(aes(fill = production)) +
+    labs(title = paste0("US State Oil Production"),
+         subtitle = paste0("Date: ", .x))
+  
+  fil <- file.path(td, sprintf("%s.png", as.character(.x)))
+  ggsave(fil, gg, , units = "in", width=6, height=3.5)
+  fil
+  
+}) %>%
+  map(image_read) %>%
+  map(image_scale, geometry = "675x") %>%
+  image_join()
+
+fin <- img %>%
+  image_animate(20) %>%
+  image_write("us_map_prod.gif")
+```
+

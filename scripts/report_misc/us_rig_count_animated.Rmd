@@ -1,0 +1,197 @@
+---
+title  : "Animated US Rig Counts"
+author : "Luke Smith"
+date   : "2017-10-06"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+---
+
+```{r setup_lib_std, include=FALSE}
+# ---- Library_Tidyverse_Setup
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(stringi)
+
+# ---- Library_ploting_Setup
+library(grid)
+library(gridExtra)
+library(ggExtra)
+library(GGally)
+library(ggalt)
+library(scales)
+library(extrafont)
+
+# ---- Library_Web_Setup
+library(rvest)
+library(jsonlite)
+
+# ---- Library_Reporting_Setup
+library(knitr)
+library(kableExtra)
+
+# ---- My_Blogging_Setup
+library(blg)
+```
+
+```{r knitr_opts_chunk_std, include=FALSE}
+# ---- Opts_Setup
+knitr::opts_chunk$set(echo =  FALSE)
+knitr::opts_chunk$set(fig.height = 7)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r knitr_opts_hooks_std, include=FALSE}
+# ---- knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot   <- knit_hooks$get("plot")
+
+# ---- Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(stringr::str_to_title(x)) else
+      return(x)
+})
+
+old_inline <- knit_hooks$get("inline")
+```
+
+```{r r_opts_std, include=FALSE}
+# ---- R_Options_Setup
+old_scipen <- getOption("scipen")
+options(scipen = 100)
+
+old_digits <- getOption("digits")
+options(digits = 2)
+```
+
+```{r r_misc_std, include=FALSE}
+loadfonts("win")
+
+my_blue   <- "#0059B3"
+my_orange <- "#B35A00"
+my_pink   <- "#B30059"
+my_green  <- "#59B300"
+```
+
+<!-- Extra setup -->
+
+```{r setup_lib_extra, include=FALSE}
+library(magick)
+```
+
+<!-- Load data -->
+
+```{r load_data}
+ref1 <- "~/R/misc/oil/price"
+ref2 <- "~/R/misc/oil/US/rig_counts"
+ref3 <- "~/R/misc/oil/US/production"
+ref4 <- "~/R/misc/maps"
+
+# Oil price
+load(file.path(ref1, "oil_price.RData"))
+
+# Rig count - basins
+load(file.path(ref2, "rc_basin.RData"))
+
+# US counties map (Albers projection)
+load(file.path(ref4, "counties_2014_adjusted.RData"))
+
+# US states map (Albers projection)
+load("~/R/misc/maps/states_map_adjusted.RData")
+
+```
+
+```{r rc_vs_price, include=FALSE}
+comb <- left_join(rc_basin, oil_price, by = c("Date" = "date"))
+
+ab <- comb %>% filter(key == "Total")
+bn <- ab %>% distinct(basin)
+bn <- bn %>% union_all(., .)
+bn <- bn %>% arrange(basin)
+bn_first_basin <- bn %>% slice(1:2)
+
+bn <- bn %>%
+  union_all(bn_first_basin) %>%
+  mutate(id = row_number())
+
+td <- tempdir()
+
+imgs <- bn$basin %>%
+  map2_chr(bn$id, ~{
+    gg <- ggplot(filter(ab, basin == .x)) +
+      geom_point(aes(value, price, color = Date)) +
+      scale_colour_date(low = clrs$blue, high = clrs$red) +
+      labs(title = paste0("Rig Count vs Oil Price"),
+           subtitle = paste0("Basin: ", .x, "\n"),
+           x = "Total Rig Count",
+           y = "Oil Price ($)",
+           caption = paste0("Source: US EIA; FRED; Baker Hughes")) +
+      theme(plot.caption = element_text(size = 10, color = "gray50"))
+    
+    fil <- file.path(td, sprintf("%s.png", as.character(.y)))
+    ggsave(fil, gg, , units = "in", width=6, height=3.5)
+    fil
+    
+  })
+
+imgs <- imgs %>% 
+  map(image_read) %>%
+  map(image_scale, geometry = "675x")
+
+imgs <- imgs %>%
+  image_join()
+
+imgs <- imgs %>% 
+  image_animate(10)
+
+imgs <- imgs %>% 
+  image_morph(nrow(bn) / 3)
+
+imgs <- imgs %>%
+  image_write("rc_vs_price_each.gif")
+
+
+td <- tempdir()
+
+# Snapshot of each
+
+
+# Lagging price
+ef <- filter(comb, basin == "Eagle Ford" & key == "Total")
+wi <- filter(comb, basin == "Williston" & key == "Total")
+
+it <- seq(0L, 16L)
+
+it %>%
+  map_chr(~{
+    
+    gg <- ggplot(ef) +
+      geom_point(aes(value, lag(price, .x), color = ef$Date)) +
+      labs(title = paste0("Rig count vs Oil price"),
+           subtitle = paste0("Price lagged by ", .x, " months"))
+    
+    fil <- file.path(td, sprintf("%04d.png", as.integer(.x)))
+    
+    ggsave(fil, gg, , units = "in", width=6, height=3.5)
+    
+    fil
+    
+  }) %>% 
+  map(image_read) %>%
+  map(image_scale, geometry = "675x") %>%
+  image_join() %>% 
+  image_animate(2) %>% 
+  image_write("rc_vs_price_lagged.gif")
+```
+
