@@ -126,9 +126,7 @@ load(file.path(rc_path, "rc_og.RData"))
 ```
 
 ```{r analyze_data_rig_counts, include=FALSE}
-nms <- c("this_week", "week_ago",
-         "month_ago", "six_months_ago",
-         "year_ago")
+nms <- c("this_week", "week_ago", "month_ago", "six_months_ago", "year_ago")
 
 key_dates <- rc_basin$Date %>%
   unique() %>%
@@ -199,11 +197,8 @@ maps_path <- "data/maps"
 load(file.path(maps_path, "states_48.RData"))
 load(file.path(maps_path, "sf_plays.RData"))
 load(file.path(maps_path, "text_mods.RData"))
-load(file.path(maps_path, "text_mods2.RData"))
 load(file.path(maps_path, "line_barnett.RData"))
 load(file.path(maps_path, "line_cana_woodford.RData"))
-load(file.path(maps_path, "line_barnett2.RData"))
-load(file.path(maps_path, "line_cana_woodford2.RData"))
 load(file.path(maps_path, "us_48_only_no_ocean_gray_raster.RData"))
 
 us48 <- SpatialPixelsDataFrame(us_48_only_no_ocean_gray_raster[, c("x", "y")],
@@ -513,7 +508,8 @@ rc_gb_grob$grobs[[which(rc_gb_grob$layout$name == "panel")]] <- rc_gb_grob$grobs
 
 ```{r plot_rig_count_draw, fig.height=13}
 grid.draw(rc_gb_grob)
-ggsave("rig_count_map.png", rc_gb_grob, dpi = 100)
+ggsave("imgs/rig_count_map.png", rc_gb_grob, dpi = 100)
+# ggsave("imgs/rig_count_map.svg", rc_gb_grob, dpi = 100)
 ```
 
 <!-- Rig type plots -->
@@ -634,7 +630,8 @@ rt_gb_grob$grobs[[which(rt_gb_grob$layout$name == "panel")]] <- rt_gb_grob$grobs
 ```{r plot_rig_type_draw, fig.height=9}
 # old fig.height=9.2
 grid.draw(rt_gb_grob)
-ggsave("rig_count_timeline.png", rt_gb_grob, dpi = 100)
+ggsave("imgs/rig_count_timeline.png", rt_gb_grob, dpi = 100)
+ggsave("imgs/rig_count_timeline.svg", rt_gb_grob, dpi = 100)
 ```
 
 ```{r d3_csv, include=FALSE}
