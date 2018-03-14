@@ -1,5 +1,5 @@
 packrat/lib*/
-packrat/src/
+config.js
 .Rproj.user
 .RData
 .RHistory
@@ -7,3 +7,5 @@ node_modules
 data
 rig_count_map.png
 rig_count_timeline.png
+imgs
+index.html
