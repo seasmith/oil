@@ -6,6 +6,7 @@ lib <- packrat::packrat_lib()
 .libPaths(lib)
 library(httr)
 library(rvest)
+library(rmarkdown)
 
 
 # Script ------------------------------------------------------------------
@@ -35,6 +36,8 @@ repeat {
  count_link <- html_attr(links[which_count], "href")
  
  if (pivot_link != previous_pivot_link & count_link != previous_count_link) break
+ counter <- counter + 1
+ Sys.sleep(1000)
  next
  
 }
@@ -50,8 +53,8 @@ if (counter > 120) {
  ppl_con <- file("links/previous_pivot_link.txt", open = "w")
  pcl_con <- file("links/previous_count_link.txt", open = "w")
  
- write(previous_pivot_link, ppl_con)
- write(previous_count_link, pcl_con)
+ write(pivot_link, ppl_con)
+ write(count_link, pcl_con)
  
  close(ppl_con)
  close(pcl_con)
@@ -68,7 +71,7 @@ if (counter > 120) {
  ct_con <- file(ct_file <- "data/rig_counts/count_table.xlsb", open = "w")
  
  download.file(pivot_link, pt_file, mode = "wb")
- download.file(count_link, cc_file, mode = "wb")
+ download.file(count_link, ct_file, mode = "wb")
  
  close(pt_con)
  close(ct_con)
@@ -77,6 +80,6 @@ if (counter > 120) {
  system("cscript scripts/report/ConvertToCSV.vbs")
  system("Rscript scripts/report/get_rig_count_data.R")
  
- rmarkdown::render("index.Rmd", output_file = "index.html")
+ render("index.Rmd", output_file = "index.html")
  
 }
