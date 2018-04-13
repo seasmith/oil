@@ -1,0 +1,14 @@
+---
+title: "Oil Explorer"
+output:
+  html_document:
+    keep_md: yes
+---
+
+
+## Coming Soon
+* Dynamic title with meta
+    * Totals, timed period, boundary type, etc; color mapping (i.e. blue = positive, red = negative, etc)
+    * Use `geom_text()` to achieve this effect and append to top of main map
+* Oil and gas split
+* Directional variable
