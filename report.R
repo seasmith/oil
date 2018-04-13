@@ -14,8 +14,7 @@ library(rmarkdown)
 url <- "http://phx.corporate-ir.net/phoenix.zhtml?c=79687&p=irol-reportsother"
 
 previous_pivot_link <- readLines("links/previous_pivot_link.txt")
-previous_count_link <- readLines("links/previous_pivot_link.txt")
-
+previous_count_link <- readLines("links/previous_count_link.txt")
 counter <- 1
 
 repeat {
@@ -23,6 +22,7 @@ repeat {
  if (counter > 120 ) break
  
  h <- read_html(url)
+ print("reading html")
  links <- html_nodes(h, xpath = '//a[contains(@class, "ccbnTblLnk")]')
  links_text <- html_text(links)
  
@@ -42,13 +42,14 @@ repeat {
  
 }
 
+print("finished reading html")
 
 if (counter > 120) {
  
  stop("Max timeout reached. Report did not compile.")
  
 } else {
- 
+
  # Write new previous_*_link variables
  ppl_con <- file("links/previous_pivot_link.txt", open = "w")
  pcl_con <- file("links/previous_count_link.txt", open = "w")
@@ -83,3 +84,7 @@ if (counter > 120) {
  render("index.Rmd", output_file = "index.html")
  
 }
+
+# Send data to OilExplorer (should this be a CSV?)
+file.copy("data/rig_counts/rc_master.RData", "OilExplorer/data")
+file.copy("data/rig_counts/rc_master.csv", "OilExplorer/data")
