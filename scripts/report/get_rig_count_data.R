@@ -133,6 +133,7 @@ rc_master <- rc_master %>%
 
 ## ----save_master---------------------------------------------------------
 save(rc_master, file = "data/rig_counts/rc_master.RData")
+write_csv(rc_master, "data/rig_counts/rc_master.csv")
 
 ## ----cleanup, include=FALSE----------------------------------------------
 rm(list = ls(pattern = "api_key_"))
