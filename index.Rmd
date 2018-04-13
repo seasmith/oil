@@ -631,7 +631,7 @@ rt_gb_grob$grobs[[which(rt_gb_grob$layout$name == "panel")]] <- rt_gb_grob$grobs
 # old fig.height=9.2
 grid.draw(rt_gb_grob)
 ggsave("imgs/rig_count_timeline.png", rt_gb_grob, dpi = 100)
-ggsave("imgs/rig_count_timeline.svg", rt_gb_grob, dpi = 100)
+# ggsave("imgs/rig_count_timeline.svg", rt_gb_grob, dpi = 100)
 ```
 
 ```{r d3_csv, include=FALSE}
