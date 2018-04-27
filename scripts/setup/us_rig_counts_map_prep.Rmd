@@ -358,10 +358,18 @@ text_mods2 <- text_mods2 %>%
     cbind(as_tibble(text_mods2 %>% select(-(X:Y))), .)
 ```
 
+```{r modify_new_states_map}
+states_map_adjusted_simp <- states_map_adjusted_simp %>%
+    filter(!STATE_ABBR %in% c("PR", "VI") &
+               TYPE == "Land")
+```
+
 ```{r save_it}
 maps_path <- "data/maps"
 
 save("states_48", file = file.path(maps_path, "states_48.RData"))
+save(states_map_adjusted_simp, file = "~/R/oil/data/maps/states_map_adjusted_simp.RData")
+
 save("sf_plays",  file = file.path(maps_path, "sf_plays.RData"))
 save("sf_plays",  file = "~/R/misc/maps/sf_plays.RData")
 
