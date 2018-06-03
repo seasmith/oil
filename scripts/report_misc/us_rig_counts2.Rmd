@@ -8,10 +8,24 @@ library(ggrepel)
 library(magick)
 library(lemon)
 library(ggalt)
+library(dplyr)
+library(stringr)
+library(sf)
+
+library(purrr)
+
+library(grid)
+library(scales)
+
+library(extrafont); loadfonts("win", quiet = TRUE)
 ```
 
 ```{r load_counties_map}
 load(file.path("~/R/misc/maps", "counties_2014_adjusted_simp.RData"))
+load("data/rig_counts/rc_basin.RData")
+load("data/rig_counts/rc_master.RData")
+
+state_lookup <- tibble(state_abb = state.abb, state_name = state.name)
 
 # Remove uneeded polygons
 counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
@@ -28,16 +42,21 @@ counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
 ```{r new_theme}
 pad_percent <- function (x) str_pad(percent(x), 4)
 
-theme_g10v2 <- function () {
-  theme_g10() +
-    theme(axis.title = element_blank(),
+theme_g10 <- function () {
+    theme(plot.background = element_rect(color = "gray10", fill = "gray10"),
+          panel.background = element_rect(fill = "gray10"),
+          text = element_text(color = "white", family = "Open Sans"),
+          axis.title = element_blank(),
+          axis.text = element_text(color = "gray90"),
           axis.line = element_line(color = "gray50"),
           panel.grid = element_blank())
 }
 
-theme_g10v3 <- function () {
-  theme_g10() +
-    theme(axis.title = element_blank(),
+theme_g10v2 <- function () {
+    theme(plot.background = element_rect(fill = "gray10", color = "gray10"),
+          panel.background = element_rect(fill = "gray10"),
+          text = element_text(color = "white", family = "Open Sans"),
+          axis.title = element_blank(),
           axis.line = element_line(color = "gray50"),
           panel.grid.major.y = element_line(color = "gray30", linetype = "dotted"),
           panel.grid.major.x = element_blank())
@@ -66,20 +85,20 @@ rec_plot <- recovery %>%
   ggplot() +
   geom_xspline(aes(Date, index, group = basin, color = col), alpha = 0.8) +
   geom_text_repel(aes(Date, index, group = basin, label = basin),
-                  recovery_last_row, color = "gray90", hjust = 0, box.padding = 0.05, direction = "y", size = 3, nudge_x = 60, segment.alpha = 0.3) +
+                  recovery_last_row, color = "gray90", hjust = 0, box.padding = 0.05, direction = "y", size = 3, nudge_x = 30, segment.alpha = 0.3) +
   scale_color_manual(values = c("brown", "steelblue")) +
-  scale_x_date(limits = c(as.Date("2014-12-01"), as.Date("2018-06-01")),
+  scale_x_date(limits = c(as.Date("2014-12-01"), max(recovery$Date) + 180),
                minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
   guides(color = FALSE) +
   labs(y = "Index (Start = 2014-01-01)",
        title = "Recovery In The Oil And Gas Basins",
-       subtitle = "Three basins have managed to recover since the 2014 price crash.",
+       subtitle = "Three basins have managed to recover since the 2014 price crash.\n\n",
        caption = "Source: Baker Hughes") +
-  theme_g10v3() +
+  theme_g10v2() +
   theme(axis.title.x.top = element_text(color = "gray90", hjust = 0,
                                         margin = margin(2, 0, 0, 0, "lines")),
-        plot.caption = element_text(hjust = 0))
+        plot.caption = element_text(hjust = 1, color = "gray50"))
 
 rec_grob <- ggplotGrob(rec_plot)
 
@@ -90,7 +109,7 @@ rec_grob$layout$l[title_row] <- 2
 rec_grob$layout$l[subtitle_row] <- 2
 
 y_lab <- textGrob("\nIndexed Rig Count\n(Start = 2014-12-01)",
-                  unit(0, "npc"), unit(0, "npc"), hjust = 0, vjust = 0.75,
+                  unit(0, "npc"), unit(0, "npc"), hjust = 0, vjust = 0,
                   # hjust = 0,
                   gp = gpar(fontsize = 9, family = "Open Sans", col = "gray90"))
 
@@ -105,13 +124,13 @@ rec_grob$layout$l[caption_row] <- 2
 grid.newpage()
 grid.draw(rec_grob)
 
-ggsave("_draft/recovery.png", rec_grob, width = 850 / 100, height = 500 / 100, dpi = 100)
+ggsave("imgs/recovery.png", rec_grob, width = 850 / 100, height = 500 / 100, dpi = 100)
 
-image_read("_draft/recovery.png") %>%
-    image_annotate("Luke Smith (@lksmth)",
-                   location = geometry_point(715, 479),
-                   color = "gray90", size = 13, font = "Open Sans") %>%
-    image_write("_draft/recovery.png")
+# image_read("_draft/recovery.png") %>%
+#     image_annotate("Luke Smith (@lksmth)",
+#                    location = geometry_point(715, 479),
+#                    color = "gray90", size = 13, font = "Open Sans") %>%
+#     image_write("_draft/recovery.png")
 ```
 
 <!--  -->
@@ -136,12 +155,12 @@ p <- ggplot(trj, aes(PublishDate, Traj_Per)) +
   geom_line(aes(group = Trajectory, color = Trajectory)) +
   geom_text_repel(aes(color = Trajectory, label = Trajectory), trj_labels, point.padding = 0.5, direction = "y") +
   scale_color_brewer(palette = "Set3") +
-  scale_y_continuous(labels = percent) +
+  scale_y_continuous(labels = scales::percent) +
   guides(color = FALSE) +
   labs(title = "Rig Count Trajectories",
        subtitle = "Percent of weekly rig count",
        caption = "Source: Baker Hughes") +
-  theme_g10v3() +
+  theme_g10v2() +
   theme(plot.title = element_text(size = 16, margin = margin(0.2, 0, 0.5, 0, "lines")),
         plot.caption = element_text(hjust = 0), panel.grid.minor = element_blank())
 
@@ -151,7 +170,7 @@ pg$layout$l[[which(pg$layout$name == "title")]]    <- 2
 pg$layout$l[[which(pg$layout$name == "subtitle")]] <- 2
 pg$layout$l[[which(pg$layout$name == "caption")]]  <- 2
 
-ggsave("trajectories.png", pg, width = 736/100, height = 500/100, dpi = 100)
+ggsave("imgs/trajectories.png", pg, width = 736/100, height = 500/100, dpi = 100)
 
 image_read("trajectories.png") %>%
   image_annotate("Luke Smith (@lksmth)",
@@ -176,7 +195,7 @@ join_tbl <- as_tibble(expand.grid(PublishDate = rep_dates,
 # Then right join for missing dates
 
 g_vars <- quos(PublishDate, Trajectory, Basin, DrillFor)
-names(g_vars) <- map_chr(g_vars, rlang::quo_text)
+names(g_vars) <- purrr::map_chr(g_vars, rlang::quo_text)
 join_bys <- c("PublishDate", "Trajectory", "Basin", "DrillFor")
 
 rcm <- rc_master %>%
@@ -215,7 +234,7 @@ plts <- rcm %>%
     mutate(DrillFor = factor(DrillFor, levels = c("Oil", "Gas"), ordered = TRUE),
            Trajectory = factor(Trajectory, levels = trj_levels, ordered = TRUE)) %>%
     split(.$Basin) %>%
-    map2_chr(seq_along(.),~{
+    purrr::map2_chr(seq_along(.),~{
       
       nm <- sort(.x$Basin)[.y]
       
@@ -261,7 +280,7 @@ p_rcm2 <- rcm2 %>%
                               keywidth = 5, keyheight = 0.5,
                               label.hjust = 0.5, override.aes = list(size = 1.5))) +
   facet_rep_wrap(~Basin) +
-  theme_g10v2() +
+  theme_g10() +
   theme(axis.ticks = element_blank(),
         panel.grid = element_blank(),
         panel.spacing.x = unit(1.5, "lines"),
@@ -289,14 +308,14 @@ p_rcm2_grob$layout <- p_rcm2_grob$layout[-which(p_rcm2_grob$layout$name == "subt
 grid.newpage()
 grid.draw(p_rcm2_grob)
 
-ggsave("trj_by_basin.png", p_rcm2_grob, width = 900 / 100, height = 500 / 100, dpi = 100)
-ggsave("trj_lgnd.png", lgnd, width = 415 / 100, height = 65 / 100, dpi = 100)
+ggsave("imgs/trj_by_basin.png", p_rcm2_grob, width = 900 / 100, height = 500 / 100, dpi = 100)
+ggsave("imgs/trj_lgnd.png", lgnd, width = 415 / 100, height = 65 / 100, dpi = 100)
 
 
-trj_basins <- image_read("trj_by_basin.png") %>%
+trj_basins <- image_read("imgs/trj_by_basin.png") %>%
   image_crop("x425+0+75")
 
-trj_lgnd <- image_read("trj_lgnd.png") %>%
+trj_lgnd <- image_read("imgs/trj_lgnd.png") %>%
   image_join(image_blank(900-415, 65, "gray10")) %>%
   image_append()
 
@@ -311,7 +330,7 @@ trj_cap <- image_blank(900, 20, "gray10") %>%
 trj_lgnd %>%
   image_join(trj_basins, trj_cap) %>%
   image_append(stack = TRUE) %>%
-  image_write("trj_by_basin.png")
+  image_write("imgs/trj_by_basin.png")
 ```
 
 ```{r trj_by_basin_multiples}
@@ -337,7 +356,7 @@ mults <- rcm2 %>%
       guides(color = FALSE) +
       labs(title = paste0(unique(.x$Basin), "\n")) +
       facet_wrap(~Trajectory, scales = "free_y", labeller = pad_percent) +
-      theme_g10(base_size = 8, base_family = "Droid Sans Mono") +
+      theme_g10() + #base_size = 8, base_family = "Droid Sans Mono"
       theme(panel.grid = element_blank(),
             panel.spacing.x = unit(0.25, "lines"),
             strip.text = element_blank(),
@@ -469,7 +488,7 @@ loc_plot <- rcm_loc %>%
                                ticks = FALSE)) +
   coord_sf(datum = NA) +
   labs(title = "Which counties have high concentrations\nof horizontal rigs?") +
-  theme_g10(base_family = "Bitstream Vera Sans Mono") +
+  theme_g10() + # base_family = "Bitstream Vera Sans Mono"
   theme(legend.position = "top",
         legend.justification = "left",
         legend.direction = "horizontal",
@@ -478,19 +497,19 @@ loc_plot <- rcm_loc %>%
         legend.margin = margin(0, 0, 0, 0),
         legend.background = element_rect(fill = "#00000000", color = "#00000000"))
 
-ggsave("trj_by_county.png", loc_plot,
-       width = 1200 / 100, height = 845/ 100,
+ggsave("imgs/trj_by_county.png", loc_plot,
+       width = 978 / 100, height = 845/ 100,
        dpi = 100)
 
-image_read("trj_by_county.png") %>%
-  image_crop("1140x+29") %>%
+image_read("imgs/trj_by_county.png") %>%
+  # image_crop("1140x+29") %>%
   image_annotate("Source: Baker Hughes",
                  color = "gray50", font = "Bitstream Vera Sans Mono", size = 11,
                  location = geometry_point(5, 825)) %>%
   image_annotate("Luke Smith (@lksmth)",
                  color = "springgreen", font = "Bitstream Vera Sans Mono", size = 13,
-                 location = geometry_point(975, 825)) %>%
-  image_write("trj_by_county.png")
+                 location = geometry_point(815, 825)) %>%
+  image_write("imgs/trj_by_county.png")
 ```
 
 ```{r}
