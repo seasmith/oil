@@ -36,8 +36,9 @@ repeat {
  count_link <- html_attr(links[which_count], "href")
  
  if (pivot_link != previous_pivot_link & count_link != previous_count_link) break
+ if (counter > 120) break 
  counter <- counter + 1
- Sys.sleep(1000)
+ Sys.sleep(60)
  next
  
 }
@@ -81,7 +82,8 @@ if (counter > 120) {
  system("cscript scripts/report/ConvertToCSV.vbs")
  system("Rscript scripts/report/get_rig_count_data.R")
  
- render("index.Rmd", output_file = "index.html")
+ render("index.Rmd",  output_file = "index.html")
+ render("index2.Rmd", output_file = "index2.html")
  
 }
 

@@ -1,7 +1,7 @@
 ---
 title  : "US Rig Counts"
 author : "Luke Smith"
-date   : Sys.Date()
+date   : "`r Sys.Date()`"
 tags   : [r, oil, gas, oil and gas, rig counts]
 description: ""
 twitter :
@@ -71,19 +71,19 @@ old_inline <- knit_hooks$get("inline")
 ```{r setup_extra, include=FALSE}
 library(sf)
 library(ggridges)
-library(nord)
 library(sp)
 
 theme_set(blg_theme_default())
+
 # Rig Type Colors
-oil_color   <- "#b27645"
-gas_color   <- "#54b245"
+oil_color   <- "#E69F00"
+gas_color   <- "#56B4E9"
 total_color <- "gray80"
 
 # Value colors (i.e. positive, negative, neutral)
 positive <- "#4569b2"
 negative <- "#b24545"
-neutral  <- "gray60"
+neutral  <- "gray80"
 
 get_2_colors <- function(x) {
   x <- Filter(function(i) i != 0, x)
@@ -94,14 +94,17 @@ get_2_colors <- function(x) {
 # Make pretty dates
 pretty_date <- function(n) format(n, "%B %d, %Y")
 
+# Prefix signs to numbers
+add_sign <- function(x) if (x > 0) paste0("+", x) else x
+
 # Base text size for bar charts
 bar_text_size	<- 12.7
 
-theme_nord <- function(text_size = 16,
-                       bg_color = nord_palettes$polarnight[1L],
+theme_gray20 <- function(text_size = 16,
+                       bg_color = "gray20",
                        title_color   = "gray80", text_color = "gray90",
-                       grid_color    = nord_palettes$polarnight[3L],
-                       caption_color = nord_palettes$polarnight[4L]) {
+                       grid_color    = "gray70",
+                       caption_color = "gray50") {
   
   theme(text = element_text("Open Sans", size = text_size, color = text_color),
         panel.grid.major   = element_line(color = grid_color),
@@ -122,16 +125,16 @@ rc_path <- "data/rig_counts"
 
 load(file.path(rc_path, "rc_basin.RData"))
 load(file.path(rc_path, "rc_master.RData"))
-load(file.path(rc_path, "rc_og.RData"))
+# load(file.path(rc_path, "rc_og.RData"))
 ```
 
 ```{r analyze_data_rig_counts, include=FALSE}
-nms <- c("this_week", "week_ago", "month_ago", "six_months_ago", "year_ago")
+nms <- c("this_week", "week_ago", "year_ago")
 
 key_dates <- rc_basin$Date %>%
   unique() %>%
   sort(decreasing = TRUE) %>%
-  .[c(1, 2, 5, 27, 53)] %>%
+  .[c(1, 2, 53)] %>%
   set_names(nms)
 
 # Find most recent week's change from previous week; Total
@@ -140,14 +143,10 @@ total_comparison <- rc_basin %>%
   arrange(Date) %>%
   mutate(change_1wk   = value - lag(value, 1L),
          percent_1wk  = change_1wk / lag(value),
-         change_4wk   = value - lag(value, 4L),
-         percent_4wk  = change_4wk / lag(value, 4),
-         change_16wk  = value - lag(value, 16L),
-         percent_16wk = change_16wk / lag(value, 16),
          change_52wk  = value - lag(value, 52L),
-         percent_52wk = change_52wk / lag(value, 52)) %>%
+         percent_52wk = change_52wk / lag(value, 52L)) %>%
   ungroup() %>%
-  filter(Date %in% c(key_dates[c("this_week", "week_ago")]))
+  filter(Date %in% c(key_dates[c("this_week", "week_ago")])) # "year_ago"
 
 # Find most recent week's oil and gas type
 type_comparison <- total_comparison %>%
@@ -187,19 +186,18 @@ diff <- total_comparison %>%
   group_by(Date, key) %>%
   summarize(value = sum(value, na.rm = TRUE)) %>%
   ungroup() %>%
-  spread(key, value) %>%
-  select(-Misc)
+  spread(key, value)
 ```
 
 ```{r import_sf_data, include=FALSE}
 maps_path <- "data/maps"
 
-load(file.path(maps_path, "states_48.RData"))
-load(file.path(maps_path, "sf_plays.RData"))
-load(file.path(maps_path, "text_mods.RData"))
-load(file.path(maps_path, "line_barnett.RData"))
-load(file.path(maps_path, "line_cana_woodford.RData"))
-load(file.path(maps_path, "us_48_only_no_ocean_gray_raster.RData"))
+load(file.path(maps_path, "us", "states_48.RData"))
+load(file.path(maps_path, "basins", "sf_plays.RData"))
+load(file.path(maps_path, "basins", "text_mods.RData"))
+load(file.path(maps_path, "basins", "line_barnett.RData"))
+load(file.path(maps_path, "basins", "line_cana_woodford.RData"))
+load(file.path(maps_path, "rasters", "us_48_only_no_ocean_gray_raster.RData"))
 
 us48 <- SpatialPixelsDataFrame(us_48_only_no_ocean_gray_raster[, c("x", "y")],
                                    us_48_only_no_ocean_gray_raster[, c("ele"), drop = FALSE],
@@ -210,11 +208,39 @@ us48 <- as.data.frame(us48)
 states_48 <- st_transform(states_48, crs = st_crs(102003))
 ```
 
-```{r print_diff}
-diff %>%
-  kable(format = "html") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"),
-                full_width = FALSE)
+```{r print_diff1, results='asis'}
+show_diff <- diff %>%
+ summarize_at(vars(Gas:Total), base::diff) %>%
+ mutate(Date = "Total Change") %>%
+ bind_rows(diff %>% mutate_at(vars(Date), as.character), .) %>%
+ select(Date, Total, Oil, Gas, Misc)
+
+direction <- if (show_diff$Total[3] > 0) {
+ "gain"
+} else if (show_diff$Total[3] < 0) {
+ "loss"
+} else {
+ "No change"
+}
+
+magnitude <- if(abs(show_diff$Total[3]) > 6) {
+ "Big"
+} else if (abs(show_diff$Total[3]) > 3) {
+ ""
+} else if (between(abs(show_diff$Total[3]), 1, 3)) {
+ "Slight"
+} else {
+ ""
+}
+
+glue::glue("{magnitude} {direction} in US rig count ({add_sign(show_diff$Total[3])}) from {comma(show_diff$Total[1])} to {comma(show_diff$Total[2])} ({add_sign(show_diff$Oil[3])} oil; {add_sign(show_diff$Gas[3])} gas; {add_sign(show_diff$Misc[3])} misc) #rigcount #OOTT #oilandgas")
+```
+
+```{r print_diff2}
+show_diff %>%
+ kable(format = "html") %>%
+ kable_styling(bootstrap_options = c("striped", "hover"),
+               full_width = FALSE)
 ```
 
 
@@ -264,7 +290,7 @@ text_mods <- text_mods %>%
 # Create blank geom to hold plots
 gb <- ggplot() +
   geom_blank() +
-  theme_nord(16) +
+  theme_gray20(16) +
   theme(text = element_text(size = 16),
         axis.title = element_blank(),
         plot.caption = element_text(hjust = 0))
@@ -272,25 +298,25 @@ gb <- ggplot() +
 
 ```{r plot_map_layout}
 map_layout <- ggplot() +
-  geom_point(aes(x = x, y = y, color = ele), us48, size = 0.01) +
-  geom_sf(data = states_48, fill = "#00000000",color = nord_palettes$polarnight[4L]) +
-  geom_text(data = text_mods, aes(X, Y, label = Shale_play),
-            size = 3.5, family = "Open Sans", color = "gray90") +
-  geom_line(data = line_barnett, aes(X, Y), color = "gray80") +
-  geom_line(data = line_cana_woodford, aes(X, Y), color = "gray80") +
-    scale_color_gradient(low = nord_palettes$polarnight[1L],
-                         high = nord_palettes$polarnight[4L]) +
-  scale_x_continuous(expand = expand_scale()) +
-  scale_y_continuous(expand = expand_scale()) +
-  guides(color = FALSE, alpha = FALSE, fill = FALSE) +
-  theme_nord(16) +
-  theme(axis.title = element_blank()) +
-  theme(legend.position = c(0.85, 0.08),
-        legend.justification = c("left", "bottom"),
-        legend.box.just = "right",
-        legend.text = element_text(color = "gray80"),
-        plot.background = element_rect(fill = nord_palettes$polarnight[1L],
-                                       color = nord_palettes$polarnight[1L]))
+ geom_point(aes(x = x, y = y, color = ele), us48, size = 0.01) +
+ geom_sf(data = states_48, fill = "#00000000", color = "gray70") +
+ geom_text(data = text_mods, aes(X, Y, label = Shale_play),
+           size = 3.5, family = "Open Sans", color = "lightyellow") +
+ geom_line(data = line_barnett, aes(X, Y), color = "gray80") +
+ geom_line(data = line_cana_woodford, aes(X, Y), color = "gray80") +
+ scale_color_gradient(low = "gray10", high = "gray80") +
+ # scale_color_viridis_c() +
+ scale_x_continuous(expand = expand_scale()) +
+ scale_y_continuous(expand = expand_scale()) +
+ guides(color = FALSE, alpha = FALSE, fill = FALSE) +
+ theme_gray20(16) +
+ theme(axis.title = element_blank()) +
+ theme(legend.position = c(0.85, 0.08),
+       legend.justification = c("left", "bottom"),
+       legend.box.just = "right",
+       legend.text = element_text(color = "gray80"),
+       plot.background = element_rect(fill = "gray20",
+                                      color = "gray20"))
 ```
 
 <!-- Rig count plots -->
@@ -342,7 +368,7 @@ rc_map <- map_layout  +
 sacrifice <- ggplot() +
     geom_col(aes(x, y, fill = z), tibble(x = 1:3, y = 3:1, z = factor(c("Increase", "No Change", "Decrease"), levels = c("Increase", "No Change", "Decrease"), ordered = TRUE))) +
     scale_fill_manual(NULL, values = c(positive, neutral, negative)) +
-    guides(fill = guide_legend(keywidth = 5, keyheight = 0.5, direction = "horizontal", label.position = "top")) + theme_nord()
+    guides(fill = guide_legend(keywidth = 5, keyheight = 0.5, direction = "horizontal", label.position = "top")) + theme_gray20()
 
 lgnd <- lemon::g_legend(sacrifice)
 ```
@@ -368,21 +394,23 @@ total_wk1_colors <- wk1_changes %>%
 
 ##  Bar chart: Percent change from week ago
 rc_percent_1wk <- this_week %>%
-  filter(percent_1wk != 0 & !is.infinite(percent_1wk)) %>%
-  ggplot() +
-  geom_col(aes(fct_rev(basin), percent_1wk, fill = percent_1wk > 0)) +
-  coord_flip() +
-  scale_fill_manual(values = total_wk1_colors) +
-  scale_x_discrete(expand = expand_scale()) +
-  scale_y_continuous(labels = blg_frmt_percent(0),
-                     breaks = pretty_breaks(3),
-                     minor_breaks = NULL,
-                     expand = expand_scale()) +
-  guides(fill = FALSE) +
-  labs(title = "Percent change from\nprevious week",
-       x = NULL,
-       y = "") +
-  theme_nord(bar_text_size)
+ filter(percent_1wk != 0 & !is.infinite(percent_1wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), percent_1wk, fill = percent_1wk > 0)) +
+ coord_flip() +
+ scale_fill_manual(values = total_wk1_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(labels = blg_frmt_percent(0),
+                    breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Percent change from\nprevious week",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank())
 
 # Net change in value
 total_wk1_colors <- this_week$percent_1wk %>%
@@ -402,20 +430,22 @@ total_wk1_colors <- this_week$percent_1wk %>%
 
 ##  Bar chart: Net change in value from week ago
 rc_change_1wk <- this_week %>%
-  filter(change_1wk != 0 & !is.infinite(percent_1wk)) %>%
-  ggplot() +
-  geom_col(aes(fct_rev(basin), change_1wk, fill = change_1wk > 0)) +
-  coord_flip() +
-  scale_fill_manual(values = total_wk1_colors) +
-  scale_x_discrete(expand = expand_scale()) +
-  scale_y_continuous(breaks = pretty_breaks(3),
-                     minor_breaks = NULL,
-                     expand = expand_scale()) +
-  guides(fill = FALSE) +
-  labs(title = "Net change from\nprevious week",
-       x = NULL,
-       y = "") +
-  theme_nord(bar_text_size)
+ filter(change_1wk != 0 & !is.infinite(percent_1wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), change_1wk, fill = change_1wk > 0)) +
+ coord_flip() +
+ scale_fill_manual(values = total_wk1_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Net change from\nprevious week",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank())
 ```
 
 ```{r plot_rig_count_charts_year_ago}
@@ -443,20 +473,22 @@ wk52_colors <- switch(as.character(sum(wk52_colors) + 2),
   
 ##  BAR - Rig count; 52 week percent change
 rc_percent_52wk <- this_week %>%
-  filter(percent_52wk != 0 & !is.infinite(percent_52wk)) %>%
-  ggplot() +
-  geom_col(aes(fct_rev(basin), percent_52wk, fill = percent_52wk < 0)) +
-  coord_flip() +
-  scale_fill_manual(values = wk52_colors) +
-  scale_x_discrete(expand = expand_scale()) +
-  scale_y_continuous(labels = blg_frmt_percent(0),
-                     breaks = pretty_breaks(3),
-                     expand = expand_scale()) +
-  guides(fill = FALSE) +
-  labs(title = "Percent change from\nprevious year",
-       x = NULL,
-       y = "") +
-  theme_nord(bar_text_size)
+ filter(percent_52wk != 0 & !is.infinite(percent_52wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), percent_52wk, fill = percent_52wk < 0)) +
+ coord_flip() +
+ scale_fill_manual(values = wk52_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(labels = blg_frmt_percent(0),
+                    breaks = pretty_breaks(3),
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Percent change from\nprevious year",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank())
 
 
 # Net change
@@ -471,20 +503,22 @@ rc_percent_52wk <- this_week %>%
 
 ##  BAR - Rig count; 52 week percent change
 rc_change_52wk <- this_week %>%
-  filter(change_52wk != 0 & !is.infinite(change_52wk)) %>%
-  ggplot() +
-  geom_col(aes(fct_rev(basin), change_52wk, fill = change_52wk < 0)) +
-  coord_flip() +
-  scale_fill_manual(values = wk52_colors) +
-  scale_x_discrete(expand = expand_scale()) +
-  scale_y_continuous(breaks = pretty_breaks(3),
-                     minor_breaks = NULL,
-                     expand = expand_scale()) +
-  guides(fill = FALSE) +
-  labs(title = "Net change from\nprevious year",
-       x = NULL,
-       y = "") +
-  theme_nord(bar_text_size)
+ filter(change_52wk != 0 & !is.infinite(change_52wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), change_52wk, fill = change_52wk < 0)) +
+ coord_flip() +
+ scale_fill_manual(values = wk52_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Net change from\nprevious year",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank())
 ```
 
 ```{r plot_rig_count_build}
@@ -492,7 +526,7 @@ rc_change_52wk <- this_week %>%
 # rc_map_grob <- ggplotGrob(rc_map)
 # rc_map_grob$grobs[[which(rc_map_grob$layout$name == "title")]] <- lgnd
 rc_map <- rc_map +
-    annotation_custom(lgnd, xmin = 0, xmax = 10000, ymin = -1280000, ymax = -1180000)
+    annotation_custom(lgnd, xmin = -1000, xmax = -6000, ymin = -1250000, ymax = -1150000)
 
 rc_grobs <- arrangeGrob(rc_map,
                         rc_change_1wk,  rc_change_52wk,
@@ -526,13 +560,14 @@ rt_gb <- gb +
 ```{r plot_rig_type_chart}
 ##  LINE - Rig type
 summ_text <- diff %>%
-    gather(... = -Date) %>%
-    filter(Date == max(Date)) %>%
-    mutate(label_key = str_pad(key, max(str_length(key)), "right"),
-           label_value = str_pad(paste0("(", comma(value), ")"),
-                                 max(str_length(paste0("(", comma(value), ")"))),
-                                 "right"),
-           label = paste0(label_key, "\n", label_value))
+ select(-Misc) %>%
+ gather(... = -Date) %>%
+ filter(Date == max(Date)) %>%
+ mutate(label_key = str_pad(key, max(str_length(key)), "right"),
+        label_value = str_pad(paste0("(", comma(value), ")"),
+                              max(str_length(paste0("(", comma(value), ")"))),
+                              "right"),
+        label = paste0(label_key, "\n", label_value))
 
 # Labels
 summ_text <- summ_text %>%
@@ -564,8 +599,9 @@ rt_type <- summ %>%
   labs(title = "Rig count by well type",
        x = NULL,
        y = NULL) +
-  theme_nord(bar_text_size) +
+  theme_gray20(bar_text_size) +
   theme(plot.title = element_text(size = 12, hjust = -0.052),
+        panel.grid.major.x = element_blank(),
         axis.text.y = element_text(margin = margin(0, -14, 0, 0, "pt"), vjust = -1.0))
 ```
 
@@ -589,10 +625,11 @@ rc_total_chart <- rc_total %>%
        y = NULL) +
   scale_y_continuous(expand = expand_scale()) +
   guides(fill = FALSE) +
-  theme_nord(bar_text_size) +
+  theme_gray20(bar_text_size) +
   theme(plot.margin = unit(c(20, 0, 0, 0), "pt"),
         plot.title = element_text(size = 12, hjust = -0.318),
-        panel.grid.major.y = element_blank()) +
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_line(linetype = "dotted")) +
   coord_flip()
 ```
 

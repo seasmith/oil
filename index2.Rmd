@@ -1,0 +1,672 @@
+---
+title  : "US Rig Counts"
+author : "Luke Smith"
+date   : "`r Sys.Date()`"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+# Set friday to TRUE or FALSE
+run <- lubridate::wday(Sys.Date(), label = TRUE) != "Fri"
+
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+```
+
+```{r import_maps}
+load("data/maps/offshore/offshore.RData")
+load("data/maps/us/counties_map.RData")
+load("data/maps/us/states_map.RData")
+load("data/maps/us/states_lines.RData")
+load("data/maps/us/state_counties_lines.RData")
+```
+
+```{r import_rig_counts}
+load("data/rig_counts/rc_master.RData")
+```
+
+```{r import_eia_data}
+# EIA Region counties
+cols <- c("state", "county", "state_id", "county_id", "region")
+xl_path  <- "data/maps/eia_drilling_report.xlsx"
+sh_names <- readxl::excel_sheets(xl_path)
+eia_df <- readxl::read_excel(xl_path, sh_names[sh_names == "RegionCounties"], NULL, cols, c(rep("text", 2), "numeric", rep("text", 2)), skip = 1L)
+```
+
+```{r tidy_rig_counts}
+rc_master <- rc_master %>%
+ filter(Country == "UNITED STATES")
+
+# Alaska:
+#  * Sagavanirktok == North Slope
+#  * Tyonek == Kenai
+#  * Umiat == North Slope
+rc_master <- rc_master %>%
+ filter(Location == "Land") %>%
+ mutate(County =
+         case_when(
+          County == "SAGAVANIRKTOK" ~ "NORTH SLOPE",
+          County == "Umiat"         ~ "NORTH SLOPE",
+          County == "TYONEK"        ~ "KENAI PENINSULA",
+          TRUE                      ~ County
+         )) %>%
+ bind_rows(rc_master %>% filter(Location != "Land"))
+
+# ONSHORE CONFLICTS
+# 'Broomfield' is not all caps (others could be in future)
+rc_master <- rc_master %>%
+ mutate_at(vars(County), str_to_upper)
+
+
+# RESOLVE OFFSHORE NAMES
+rc_master <- rc_master %>%
+ filter(Location == "Offshore") %>%
+ mutate(County = case_when(
+  County == "NORTH SLOPE OFFSHORE" ~ "NORTH SLOPE",
+  County == "KENAI PENINSULA" ~ "KENAI",
+  County == "ORANGE" ~ "SANTA MARIA",
+  County == "SANTA BARBARA" ~ "SANTA MARIA",
+  County == "BAY MARCHAND" ~ "BAY MARCHAND AREA",
+  County == "BRETON SOUND" ~ "BRETON SOUND AREA",
+  County == "EAST CAMERON SOUTH" ~ "EAST CAMERON",
+  County == "EUGENE ISLAND SOUTH" ~ "EUGENE ISLAND",
+  County == "MAIN PASS SOUTH AND EAST" ~ "MAIN PASS",
+  County == "SHIP SHOAL SOUTH" ~ "SHIP SHOAL",
+  County == "SOUTH MARSH ISLAND NORTH" ~ "SOUTH MARSH ISLAND",
+  County == "SOUTH MARSH ISLAND SOUTH" ~ "SOUTH MARSH ISLAND",
+  County == "SOUTH PELTO" ~ "SOUTH PELTO AREA",
+  County == "VERMILION OFFSHORE" ~ "VERMILION",
+  County == "VERMILION SOUTH" ~ "VERMILION",
+  County == "WEST CAMERON SOUTH" ~ "WEST CAMERON",
+  County == "WEST CAMERON WEST" ~ "WEST CAMERON",
+  County == "WEST DELTA SOUTH" ~ "WEST DELTA",
+  County == "HIGH ISLAND SOUTH" ~ "HIGH ISLAND",
+  County == "MATAGORDA ISLAND" ~ "MATAGORDA ISLAND AREA",
+  TRUE ~ County
+ )) %>%
+ bind_rows(
+  rc_master %>%
+   filter(Location != "Offshore")
+ )
+
+# RESOLVE INLAND WATERS NAMES
+rc_master <- rc_master %>%
+ filter(Location == "Inland Waters") %>%
+ mutate(Location = case_when(
+  County == "EUGENE ISLAND"       ~ "Offshore",
+  County == "VERMILION OFFSHORE"  ~ "Offshore",
+  County == "BRAZOS OFFSHORE"     ~ "Offshore",
+  County == "GRAND ISLE OFFSHORE" ~ "Offshore",
+  County == "GALVESTON OFFSHORE"  ~ "Offshore",
+  TRUE ~ Location
+ )) %>%
+ mutate(County = case_when(
+  County == "VERMILION OFFSHORE"  ~ "VERMILION",
+  County == "BRAZOS OFFSHORE"     ~ "BRAZOS",
+  County == "GRAND ISLE OFFSHORE" ~ "GRAND ISLE",
+  County == "GALVESTON OFFSHORE"  ~ "GALVESTON",
+  TRUE ~ County
+ )) %>%
+ bind_rows(
+  rc_master %>%
+   filter(Location != "Inland Waters")
+ )
+```
+
+```{r tidy_bh_regions}
+bh_df <- rc_master %>%
+ filter(Basin != "Other") %>%
+ distinct(County, `State/Province`, Basin) 
+
+bh <- bh_df %>%
+ left_join(counties_map, .,
+           by = c("STATE_NAME" = "State/Province",
+                  "NAME" = "County"))
+
+bh_df <- bh_df %>%
+ select(name = `State/Province`, county = County, region = Basin)
+
+bh_regions <- bh %>%
+    group_by(Basin) %>%
+    summarize() %>%
+    st_cast("MULTILINESTRING")
+```
+
+```{r tidy_eia_data}
+state_lookup <- tibble(abb = state.abb, name = str_to_upper(state.name))
+
+eia_df <- eia_df %>%
+ inner_join(state_lookup, by = c("state" = "abb"))
+
+eia_df <- eia_df %>%
+ mutate(county = if_else(county == "DEWITT", "DE WITT", county))
+
+eia <- eia_df %>%
+ left_join(counties_map, ., by = c("STATE_NAME" = "name", "NAME" = "county"))
+
+eia_df <- eia_df %>% 
+ select(name, county, region)
+
+eia_regions <- eia %>%
+ group_by(region) %>%
+ summarize() %>%
+ st_cast("MULTILINESTRING")
+```
+
+```{r eia_conflicts, results='hold'}
+print("County conflicts with EIA")
+counties_map %>%
+ anti_join(eia_df, ., by = c("name" = "STATE_NAME", "county" = "NAME"))
+```
+
+```{r inland_conflicts, results='hold'}
+print("Inland Waters conflicts with Baker Hughes")
+rc_master %>%
+ filter(Location == "Inland Waters") %>%
+ anti_join(counties_map, by = c("State/Province" = "STATE_NAME", "County" = "NAME")) %>%
+ select(County, `State/Province`)
+```
+
+```{r land_conflicts, results='hold'}
+print("Land conflicts with Baker Hughes")
+rc_master %>%
+ filter(Location == "Land") %>%
+ anti_join(counties_map, by = c("State/Province" = "STATE_NAME", "County" = "NAME")) %>%
+ select(County, `State/Province`)
+```
+
+```{r offshore_conflicts, results='hold'}
+print("Offshore conflicts with Baker Hughes")
+rc_master %>%
+ filter(Location == "Offshore") %>%
+ anti_join(offshore, by = c("County" = "name")) %>%
+ select(County, `State/Province`)
+```
+
+### Current Week Rig Count Levels
+
+```{r current_week_levels, fig.path="imgs/", dpi=100}
+current_week <- max(rc_master$PublishDate, na.rm = TRUE)
+
+# Offshore counts
+off_map <- rc_master %>%
+ filter(PublishDate == max(PublishDate) &
+         Location == "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ left_join(offshore, ., by = c("name" = "County"))
+
+# Onshore counts
+on_map <- rc_master %>%
+ filter(PublishDate == max(PublishDate) &
+         Location != "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ left_join(counties_map, .,
+           by = c("STATE_NAME" = "State/Province",
+                  "NAME" = "County"))
+
+# Map
+on_map %>%
+ ggplot(aes(fill = RigCount)) +
+ geom_sf(size = 0.05) +
+ geom_sf(data = off_map, size = 0.05) +
+ geom_sf(data = state_counties_lines,
+         color = "gray70", fill = "brown", size = 0.05) +
+ scale_fill_viridis_c("") +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Rig Count",
+      subtitle = paste0(pretty_date(current_week)),
+      caption = "Source: Baker Hughes Rig Count") +
+ guides(fill = guide_colorbar(barwidth = unit(5, "cm"),
+                              barheight = unit(0.3, "cm"))) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.caption = element_text(color = "gray50"),
+       legend.direction = "horizontal",
+       legend.position = c(0.4, 1.055),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Change From Previous Week
+
+```{r change_previous_week, fig.path="imgs/", dpi=100}
+last_two <- rc_master$PublishDate %>%
+ unique() %>%
+ sort(decreasing = TRUE) %>%
+ .[c(1, 2)]
+
+# Keys for right joins
+right_keys <- c("County", "State/Province", "Location", "PublishDate")
+
+# Get the unique locations (for right join, to find missing rows)
+get_uni_loc <- function(loc_log) {
+ 
+ rc_master %>%
+  filter(!!enquo(loc_log) &
+          (PublishDate == last_two[1] |
+            PublishDate == last_two[2])) %>%
+  distinct(County, `State/Province`, Location)
+ 
+}
+
+# Create two week summary of the difference
+summ_loc <- function(loc_log, data) {
+ rc_master %>%
+  filter(!!enquo(loc_log) &
+          (PublishDate == last_two[1] |
+            PublishDate == last_two[2])) %>%
+  group_by(County, `State/Province`, PublishDate) %>%
+  right_join(data, by = right_keys) %>%
+  mutate(RigCount = if_else(is.na(RigCount), 0L, RigCount)) %>%
+  summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+  summarize(RigCountChange = RigCount[2] - RigCount[1]) %>%
+  ungroup()
+}
+
+# OFFSHORE
+uni_loc_off  <- get_uni_loc(Location == "Offshore")
+complete_off <- merge(uni_loc_off, data.frame(PublishDate = last_two))
+summ_off <- summ_loc(Location == "Offshore", complete_off) %>%
+ left_join(offshore, ., by = c("name" = "County"))
+
+# ONSHORE
+uni_loc_on  <- get_uni_loc(Location != "Offshore")
+complete_on <- merge(uni_loc_on, data.frame(PublishDate = last_two))
+summ_on <- summ_loc(Location != "Offshore", complete_on) %>%
+ left_join(counties_map, .,
+           by = c("STATE_NAME" = "State/Province",
+                  "NAME" = "County"))
+
+# Map
+summ_on %>%
+ ggplot(aes(fill = RigCountChange)) +
+ geom_sf(size = 0.05) +
+ geom_sf(data = summ_off, size = 0.05) +
+ geom_sf(data = state_counties_lines,
+         color = "gray70", fill = "brown", size = 0.05) +
+ scale_fill_gradient2("") +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Rig Count Change",
+      subtitle = paste0(pretty_date(last_two[2]),
+                        " - ", pretty_date(last_two[1])),
+      caption = "Source: Baker Hughes Rig Count") +
+ guides(fill = guide_colorbar(barwidth = unit(5, "cm"),
+                              barheight = unit(0.3, "cm"))) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.caption = element_text(color = "gray50"),
+       legend.direction = "horizontal",
+       legend.position = c(0.6, 1.055),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Total Rig Count
+
+```{r totals_since_2011, eval=run}
+first_week <- min(rc_master$PublishDate, na.rm = TRUE)
+
+# Offshore
+off_map <- rc_master %>%
+ filter(Location == "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ left_join(offshore, ., by = c("name" = "County"))
+
+# Onshore
+on_map <- rc_master %>%
+ filter(Location != "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ left_join(counties_map, .,
+           by = c("STATE_NAME" = "State/Province",
+                  "NAME" = "County"))
+
+# Map
+on_map %>%
+ ggplot(aes(fill = RigCount)) +
+ geom_sf(size = 0.05) +
+ geom_sf(data = off_map, size = 0.05) +
+ geom_sf(data = state_counties_lines,
+         color = "gray70", fill = "brown", size = 0.05) +
+ scale_fill_viridis_c("") +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Total Rig Count",
+      subtitle = paste0(pretty_date(first_week), " - ", pretty_date(current_week)),
+      caption = "Source: Baker Hughes Rig Count") +
+ guides(fill = guide_colorbar(barwidth = unit(5, "cm"))) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.caption = element_text(color = "gray50"),
+       legend.direction = "horizontal",
+       legend.position = c(0.55, 1.04),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Baker Hughes Basin-Associated Counties
+
+```{r baker_hughes_basin, eval=run}
+bh_labels <- bh$Basin %>% unique()
+bh_labels <- sort(bh_labels)
+bh_labels[length(bh_labels) + 1L] <- "Not Tracked"
+bh_labels <- gsub(" Region", "", bh_labels)
+
+bh %>%
+ ggplot() +
+ geom_sf(aes(fill = Basin), size = 0.05) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Onshore Basins",
+      subtitle = "Baker Hughes Rig Count") +
+ scale_fill_discrete("Basins", labels = bh_labels) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### EIA Basin-Associated Counties
+
+```{r eia_basin, eval=run}
+eia_labels <- eia$region %>% unique()
+eia_labels <- sort(eia_labels)
+eia_labels[length(eia_labels) + 1L] <- "Not Tracked"
+eia_labels <- gsub(" Region", "", eia_labels)
+
+eia %>%
+ ggplot() +
+ geom_sf(aes(fill = region), size = 0.05) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Onshore Basins",
+      subtitle = "EIA Drilling Productivity Report") +
+ scale_fill_discrete("Basins", labels = eia_labels) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Same Counties
+
+```{r same_regions, eval=run}
+shared <- bh_df %>%
+ select(-region) %>%
+ inner_join(eia_df, by = c("county", "name"))
+
+shared %>%
+ left_join(counties_map, .,
+           by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
+ ggplot() +
+ geom_sf(aes(fill = !is.na(region)), size = 0.05) +
+ scale_fill_manual(NULL, values = c("gray50", "steelblue"), labels = c("Untracked", "Tracked")) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Shared Counties Wtihin Tracked Basins", 
+      subtitle = "Counties Found In Both The Baker Hughes Rig Count And The EIA Drilling Report") +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Report Difference
+#### Total Difference
+```{r diff_regions, eval=run}
+# Baker Hughes unique counties
+diff_bh <- bh_df  %>%
+ filter(!is.na(region)) %>%
+ anti_join(
+  eia_df %>%
+   filter(!is.na(region)),
+  by = c("name", "county")) %>%
+ list() %>%
+ set_names("BH")
+
+# EIA unique counties
+diff_eia <- eia_df  %>%
+ filter(!is.na(region)) %>%
+ anti_join(
+  bh_df %>%
+   filter(!is.na(region)),
+  by = c("name", "county")) %>%
+ list() %>%
+ set_names("EIA")
+
+# Total unique
+total_diff <- diff_bh %>%
+    bind_rows(diff_eia, .id = "report")
+
+total_diff %>%
+    union(mutate(shared, report = "Shared")) %>%
+ left_join(counties_map, .,
+           by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
+ ggplot() +
+ geom_sf(aes(fill = report), size = 0.05, color = "gray60") +
+ scale_fill_manual(NULL, values = c("brown", "tan3", "gray50"),
+                   labels = c("Unique To Baker Hughes", "Unique To EIA", "Shared", "Unassociated"),
+                   na.value = "gray30") +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Who Tracks What?",
+      subtitle = paste0("Basin-Associated Counties Found Within The Baker Hughes Rig Count",
+                        "\n",
+                        "and The EIA Drilling Productivity Report"),
+      caption = "Source: Baker Hughes Rig Count; EIA Drilling Productivity Report"
+      ) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"),
+       plot.caption = element_text(color = "gray50", hjust = 1))
+```
+
+#### Individual Differences
+
+```{r diff_regions2, eval=FALSE}
+# Unique Baker Hughes
+diff_bh %>%
+ .[[1]] %>%
+ left_join(counties_map, .,
+           by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
+ ggplot() +
+ geom_sf(aes(fill = !is.na(region))) +
+ scale_fill_manual(NULL, values = c("gray50", "brown"), labels = c("Not Unique", "Unique")) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Unique Counties",
+      subtitle = "Baker Hughes Rig Count"#,
+      # caption = "Source: Baker Hughes Rig Count; EIA Drilling Report"
+      ) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"))
+
+# Unique EIA
+diff_eia %>%
+ .[[1]] %>%
+ left_join(counties_map, .,
+           by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
+ ggplot() +
+ geom_sf(aes(fill = !is.na(region))) +
+ scale_fill_manual(NULL, values = c("gray50", "brown"), labels = c("Not Unique", "Unique")) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = "Unique Counties",
+      subtitle = "EIA Drilling Report"#,
+      # caption = "Source: Baker Hughes Rig Count; EIA Drilling Report"
+      ) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Max Rig Count
+
+```{r max_count, eval=run}
+max_count <- rc_master %>%
+ group_by(County, `State/Province`, Location, PublishDate) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ filter(RigCount == max(RigCount)) %>%
+ arrange(PublishDate) %>%
+ filter(row_number() == 1) %>%
+ ungroup() 
+
+max_off <- max_count %>%
+ filter(Location == "Offshore") %>%
+ left_join(offshore, ., by = c("name" = "County"))
+
+max_on <- max_count %>%
+ filter(Location != "Offshore") %>%
+ left_join(counties_map, .,
+           by = c("NAME" = "County", "STATE_NAME" = "State/Province"))
+
+
+max_on %>%
+ ggplot(aes(fill = RigCount)) +
+ geom_sf(data = max_off, size = 0.05) +
+ geom_sf(size = 0.05) +
+ geom_sf(data = state_counties_lines, 
+         color = "gray70", fill = "brown", size = 0.05) +
+ scale_fill_viridis_c(NULL) +
+ coord_sf(datum = NA, crs = st_crs(2163)) +
+ labs(title = paste0("Max Rig Count"),
+      subtitle = paste0(pretty_date(first_week), " - ", pretty_date(current_week)),
+      caption = "Source: Baker Hughes Rig Count") +
+ guides(fill = guide_colorbar(barwidth = unit(5, "cm")
+ )) +
+ theme_void() +
+ theme(text = element_text(color = "white"),
+       plot.caption = element_text(color = "gray50"),
+       legend.direction = "horizontal",
+       legend.position = c(0.55, 1.04),
+       plot.background = element_rect(fill = "gray20"))
+```
+
+### Well Depth
+
+```{r well_depth, eval=run}
+rc_master %>%
+ filter(PublishDate == max(PublishDate)) %>%
+ group_by(Basin, WellDepth, DrillFor, Trajectory) %>%
+ summarize(RigCount = sum(RigCount)) %>%
+ ungroup() %>%
+ ggplot() +
+ geom_col(aes(fct_relevel(WellDepth, "N/A", "<5k", "5k-10k", "10k-15k", ">15k"), RigCount, fill = DrillFor)) +
+ facet_grid(Trajectory ~ Basin, scales = "free_y") +
+ theme_classic()
+```
+
+### Growth Track
+
+```{r load_growth_data}
+load("data/rig_counts/rc_basin.RData")
+```
+
+```{r growth_theme}
+theme_g10v2 <- function () {
+    theme(plot.background = element_rect(fill = "gray10", color = "gray10"),
+          panel.background = element_rect(fill = "gray10"),
+          text = element_text(color = "white", family = "Open Sans"),
+          axis.title = element_blank(),
+          axis.line = element_line(color = "gray50"),
+          panel.grid.major.y = element_line(color = "gray30", linetype = "dotted"),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+}
+```
+
+```{r past_six_months_panel, eval=FALSE}
+summ %>%
+  filter(key == "Total") %>%
+  mutate(Date = as.Date(Date)) %>%
+  filter(Date >= key_dates[["this_week"]] - (365 / 2)) %>%
+  ggplot() +
+  geom_line(aes(Date, value), size = 1.2) +
+  scale_y_continuous(breaks = pretty_breaks(2),
+                     expand = expand_scale()) +
+  scale_x_date(breaks = pretty_breaks(6),
+               labels = function(x) format(x, "%b %Y"),
+               expand = expand_scale()) +
+  labs(x = NULL, y = NULL) +
+  blg_theme_default(12) +
+  theme(plot.title  = element_text(size = 12, hjust = -0.052),
+        axis.text.y = element_text(),
+        panel.grid.major.x = element_blank())
+```
+
+```{r plot_no_growth_weeks, eval=FALSE}
+# Which basins have had the fewest "no growth" weeks?
+no_growth <- map(unique(rc_basin$basin), ~{
+    rc_basin %>%
+        filter(basin == .x & key == "Total") %>%
+        mutate(change = value - lag(value, 1L)) %>%
+        filter(!is.na(change)) %>%
+        filter(change < 1) %>%
+        filter(lubridate::year(Date) == 2018L)
+           }) %>%
+  map_int(nrow)
+
+no_growth <- tibble(Basin = unique(rc_basin$basin), Weeks = no_growth)
+
+no_growth %>%
+    arrange(Weeks) %>%
+    mutate(Basin = factor(Basin, levels = rev(Basin))) %>%
+    ggplot() +
+    geom_col(aes(Basin, Weeks, fill = Weeks)) +
+    geom_text(aes(Basin, Weeks, label = Weeks), nudge_y = 1.7) +
+    coord_flip() +
+    guides(fill = FALSE) +
+    labs(title = "Top Performers",
+         subtitle = paste0("Which basins have had the fewest", "\nno-growth weeks during 2018?"),
+      caption = "Source: Baker Hughes Rig Count",
+         x = NULL)
+```
+
+```{r plot_growth_weeks}
+growth <- map(unique(rc_basin$basin), ~{
+    rc_basin %>%
+        filter(basin == .x & key == "Total") %>%
+        mutate(change = value - lag(value, 1L)) %>%
+        filter(!is.na(change)) %>%
+        filter(change > 1) %>%
+        filter(lubridate::year(Date) == 2018L)
+           }) %>%
+  map_int(nrow)
+
+growth <- tibble(Basin = unique(rc_basin$basin), Weeks = growth)
+
+growth %>%
+ arrange(Weeks) %>%
+ mutate(Basin = factor(Basin, levels = Basin)) %>%
+ ggplot() +
+ geom_col(aes(Basin, Weeks, fill = Weeks)) +
+ geom_text(aes(Basin, Weeks, label = Weeks), nudge_y = 0.25, color = "white") +
+ coord_flip() +
+ guides(fill = FALSE) +
+ scale_fill_viridis_c() +
+ labs(title = "Top Performers",
+      subtitle = paste0("Which basins have had the most", "\nweeks of growth during 2018?"),
+      caption = "Source: Baker Hughes Rig Count",
+      x = NULL) +
+ theme_g10v2() +
+ theme(axis.title.x.top = element_text(color = "gray90", hjust = 0,
+                                       margin = margin(2, 0, 0, 0, "lines")),
+       plot.caption = element_text(hjust = 1, color = "gray50"),
+       panel.grid.major.x = element_line(color = "gray30", linetype = "dotted"),
+       panel.grid.major.y = element_blank(),
+       panel.grid.minor.y = element_blank())
+```
