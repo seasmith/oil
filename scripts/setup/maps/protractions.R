@@ -43,7 +43,8 @@ gom_union <- c("High Island", "Galveston", "Mustang Island", "Brazos")
 
 #  * Dissolving these will help make map more aesthetic:
 
-gom_union <- c(gom_union, "South Padre", "North Padre")
+gom_union <- c(gom_union, "South Padre", "North Padre", "Sabine Pass Area",
+               "Chandeleur Area")
 
 # Louisiana:
 #  * All searchable
@@ -64,6 +65,10 @@ gom_union <- c(gom_union, "Main Pass", "Viosca Knoll", "South Timbalier",
 # LOAD --------------------------------------------------------------------
 
 load("data/maps/us/counties_sim.RData")
+states_sim <- counties_sim %>%
+ group_by(state) %>%
+ summarize() %>%
+ ungroup()
 
 # Pacific
 pac_orig <- st_read("data/maps/offshore/pac_protrac/PC_PROTLMT.shp")

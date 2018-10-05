@@ -20,13 +20,17 @@ editor_options:
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(sf)
+library(magick)
 
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
 
+knitr::opts_chunk$set(dpi = 300)
+
 # Set friday to TRUE or FALSE
-run <- lubridate::wday(Sys.Date(), label = TRUE) != "Fri"
+# run <- weekdays(Sys.Date()) != "Friday"
+run <- FALSE
 
 # Make pretty dates
 pretty_date <- function(n) format(n, "%B %d, %Y")
@@ -44,12 +48,16 @@ load("data/maps/us/state_counties_lines.RData")
 load("data/rig_counts/rc_master.RData")
 ```
 
-```{r import_eia_data}
+```{r import_eia_data, eval=run}
 # EIA Region counties
 cols <- c("state", "county", "state_id", "county_id", "region")
 xl_path  <- "data/maps/eia_drilling_report.xlsx"
 sh_names <- readxl::excel_sheets(xl_path)
 eia_df <- readxl::read_excel(xl_path, sh_names[sh_names == "RegionCounties"], NULL, cols, c(rep("text", 2), "numeric", rep("text", 2)), skip = 1L)
+```
+
+```{r misc-cache, cache=TRUE}
+state_lookup <- tibble(abb = state.abb, name = str_to_upper(state.name))
 ```
 
 ```{r tidy_rig_counts}
@@ -151,15 +159,16 @@ bh_regions <- bh %>%
     st_cast("MULTILINESTRING")
 ```
 
-```{r tidy_eia_data}
-state_lookup <- tibble(abb = state.abb, name = str_to_upper(state.name))
-
+```{r tidy_eia_data, eval=run}
+# Add state-name abbreviation column (for joining)
 eia_df <- eia_df %>%
  inner_join(state_lookup, by = c("state" = "abb"))
 
+# Correct this annoying discrepency
 eia_df <- eia_df %>%
  mutate(county = if_else(county == "DEWITT", "DE WITT", county))
 
+# Join EIA data with county-level map
 eia <- eia_df %>%
  left_join(counties_map, ., by = c("STATE_NAME" = "name", "NAME" = "county"))
 
@@ -172,7 +181,7 @@ eia_regions <- eia %>%
  st_cast("MULTILINESTRING")
 ```
 
-```{r eia_conflicts, results='hold'}
+```{r eia_conflicts, results='hold', eval=run}
 print("County conflicts with EIA")
 counties_map %>%
  anti_join(eia_df, ., by = c("name" = "STATE_NAME", "county" = "NAME"))
@@ -204,7 +213,7 @@ rc_master %>%
 
 ### Current Week Rig Count Levels
 
-```{r current_week_levels, fig.path="imgs/", dpi=100}
+```{r current_week_levels, fig.path="imgs/rig_counts/"}
 current_week <- max(rc_master$PublishDate, na.rm = TRUE)
 
 # Offshore counts
@@ -230,15 +239,15 @@ on_map <- rc_master %>%
 # Map
 on_map %>%
  ggplot(aes(fill = RigCount)) +
- geom_sf(size = 0.05) +
- geom_sf(data = off_map, size = 0.05) +
+ geom_sf(size = 0.2) +
+ geom_sf(data = off_map, size = 0.2) +
  geom_sf(data = state_counties_lines,
-         color = "gray70", fill = "brown", size = 0.05) +
+         color = "gray70", fill = "brown", size = 0.2) +
  scale_fill_viridis_c("") +
  coord_sf(datum = NA, crs = st_crs(2163)) +
- labs(title = "Rig Count",
-      subtitle = paste0(pretty_date(current_week)),
-      caption = "Source: Baker Hughes Rig Count") +
+ labs(title = " Rig Count",
+      subtitle = paste0(" ", pretty_date(current_week)),
+      caption = "Source: Baker Hughes Rig Count ") +
  guides(fill = guide_colorbar(barwidth = unit(5, "cm"),
                               barheight = unit(0.3, "cm"))) +
  theme_void() +
@@ -246,12 +255,12 @@ on_map %>%
        plot.caption = element_text(color = "gray50"),
        legend.direction = "horizontal",
        legend.position = c(0.4, 1.055),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Change From Previous Week
 
-```{r change_previous_week, fig.path="imgs/", dpi=100}
+```{r change_previous_week, fig.path="imgs/rig_counts/"}
 last_two <- rc_master$PublishDate %>%
  unique() %>%
  sort(decreasing = TRUE) %>%
@@ -302,25 +311,123 @@ summ_on <- summ_loc(Location != "Offshore", complete_on) %>%
 # Map
 summ_on %>%
  ggplot(aes(fill = RigCountChange)) +
- geom_sf(size = 0.05) +
- geom_sf(data = summ_off, size = 0.05) +
+ geom_sf(size = 0.2) +
+ geom_sf(data = summ_off, size = 0.2) +
  geom_sf(data = state_counties_lines,
-         color = "gray70", fill = "brown", size = 0.05) +
+         color = "gray70", fill = "brown", size = 0.2) +
  scale_fill_gradient2("") +
  coord_sf(datum = NA, crs = st_crs(2163)) +
- labs(title = "Rig Count Change",
-      subtitle = paste0(pretty_date(last_two[2]),
+ labs(title = " Rig Count Change",
+      subtitle = paste0(" ", pretty_date(last_two[2]),
                         " - ", pretty_date(last_two[1])),
-      caption = "Source: Baker Hughes Rig Count") +
+      caption = "Source: Baker Hughes Rig Count ") +
  guides(fill = guide_colorbar(barwidth = unit(5, "cm"),
                               barheight = unit(0.3, "cm"))) +
  theme_void() +
  theme(text = element_text(color = "white"),
        plot.caption = element_text(color = "gray50"),
        legend.direction = "horizontal",
-       legend.position = c(0.6, 1.055),
-       plot.background = element_rect(fill = "gray20"))
+       legend.position = c(0.69, 1.055),
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
+
+
+
+```{r new-idea, eval=FALSE}
+
+# Offshore counts
+new_off_map <- rc_master %>%
+ filter(PublishDate == max(PublishDate) &
+         Location == "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ inner_join(offshore, ., by = c("name" = "County"))
+
+# Onshore counts
+new_on_map <- rc_master %>%
+ filter(PublishDate == max(PublishDate) &
+         Location != "Offshore") %>%
+ group_by(County, `State/Province`) %>%
+ summarize(RigCount = sum(RigCount, na.rm = TRUE)) %>%
+ ungroup() %>%
+ inner_join(counties_map, .,
+            by = c("STATE_NAME" = "State/Province",
+                   "NAME" = "County"))
+
+# Set raster limits
+x <- Reduce(rbind, list(select(offshore, geometry), select(counties_map, geometry)))
+bbox <- st_bbox(st_transform(x, st_crs(2163)))
+
+base_map_counties <-  ggplot() +
+ geom_sf(data = offshore, size = 0.2, fill = "gray50") +
+ geom_sf(data = counties_map, fill = "gray50", size = 0.2) +
+ # geom_sf(data = state_counties_lines,
+ #         color = "gray70", size = 0.2) +
+ scale_fill_viridis_c("") +
+ scale_x_continuous(expand = expand_scale()) +
+ scale_y_continuous(expand = expand_scale()) +
+ coord_sf(datum = NA, crs = st_crs(2163),
+          xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
+          ylim = c(bbox[["ymin"]], bbox[["ymax"]])) +
+ # labs(title = " Rig Count",
+ #      subtitle = paste0(" ", pretty_date(current_week)),
+ #      caption = "Source: Baker Hughes Rig Count ") +
+ # guides(fill = guide_colorbar(barwidth = unit(5, "cm"),
+ #                              barheight = unit(0.3, "cm"))) +
+ theme_void() +
+ theme(plot.background = element_rect(fill = "gray20", color = "gray20", size = 0)) +
+ NULL
+
+
+# Save base map
+ggsave(f_base_map_counties <- "imgs/base-map-counties.png",
+       base_map_counties, dpi = 600)
+
+# Convert png to raster
+base_map_counties <- f_base_map_counties %>%
+ image_read() %>%
+ image_trim() %>%
+ as.raster()
+
+
+
+# Plot data with underlaid raster
+new_map <- ggplot() +
+ annotation_raster(base_map_counties,
+                   bbox[["xmin"]], bbox[["xmax"]], 
+                   bbox[["ymin"]], bbox[["ymax"]]) +
+ geom_sf(aes(fill = RigCount), data = new_on_map, size = 0.2) +
+ geom_sf(aes(fill = RigCount), data = new_off_map, size = 0.2) +
+ geom_sf(data = state_counties_lines,
+         color = "gray70", size = 0.2) +
+ scale_fill_viridis_c("") +
+ scale_x_continuous(expand = expand_scale()) +
+ scale_y_continuous(expand = expand_scale()) +
+ coord_sf(datum = NA, crs = st_crs(2163),
+          xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
+          ylim = c(bbox[["ymin"]], bbox[["ymax"]])) +
+ theme_void() +
+ theme(plot.background = element_rect(fill = "gray20", color = "gray20", size = 0),
+       text = element_text(color = "white"),
+       legend.direction = "horizontal",
+       legend.position = c(0.4, 0.8)
+       # NULL
+       )
+
+# Save new map
+ggsave(f_new_map <- "imgs/new-map.png",
+       new_map, dpi = 600)
+
+# Convert png to raster
+f_new_map %>%
+ image_read() %>%
+ image_trim() %>%
+ image_resize("1344x") %>%
+ # as.raster()
+ I()
+```
+
 
 ### Total Rig Count
 
@@ -348,10 +455,10 @@ on_map <- rc_master %>%
 # Map
 on_map %>%
  ggplot(aes(fill = RigCount)) +
- geom_sf(size = 0.05) +
- geom_sf(data = off_map, size = 0.05) +
+ geom_sf(size = 0.2) +
+ geom_sf(data = off_map, size = 0.2) +
  geom_sf(data = state_counties_lines,
-         color = "gray70", fill = "brown", size = 0.05) +
+         color = "gray70", fill = "brown", size = 0.2) +
  scale_fill_viridis_c("") +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Total Rig Count",
@@ -363,7 +470,7 @@ on_map %>%
        plot.caption = element_text(color = "gray50"),
        legend.direction = "horizontal",
        legend.position = c(0.55, 1.04),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Baker Hughes Basin-Associated Counties
@@ -376,14 +483,14 @@ bh_labels <- gsub(" Region", "", bh_labels)
 
 bh %>%
  ggplot() +
- geom_sf(aes(fill = Basin), size = 0.05) +
+ geom_sf(aes(fill = Basin), size = 0.2) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Onshore Basins",
       subtitle = "Baker Hughes Rig Count") +
  scale_fill_discrete("Basins", labels = bh_labels) +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### EIA Basin-Associated Counties
@@ -396,14 +503,14 @@ eia_labels <- gsub(" Region", "", eia_labels)
 
 eia %>%
  ggplot() +
- geom_sf(aes(fill = region), size = 0.05) +
+ geom_sf(aes(fill = region), size = 0.2) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Onshore Basins",
       subtitle = "EIA Drilling Productivity Report") +
  scale_fill_discrete("Basins", labels = eia_labels) +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Same Counties
@@ -417,14 +524,14 @@ shared %>%
  left_join(counties_map, .,
            by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
  ggplot() +
- geom_sf(aes(fill = !is.na(region)), size = 0.05) +
+ geom_sf(aes(fill = !is.na(region)), size = 0.2) +
  scale_fill_manual(NULL, values = c("gray50", "steelblue"), labels = c("Untracked", "Tracked")) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Shared Counties Wtihin Tracked Basins", 
       subtitle = "Counties Found In Both The Baker Hughes Rig Count And The EIA Drilling Report") +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Report Difference
@@ -459,7 +566,7 @@ total_diff %>%
  left_join(counties_map, .,
            by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
  ggplot() +
- geom_sf(aes(fill = report), size = 0.05, color = "gray60") +
+ geom_sf(aes(fill = report), size = 0.2, color = "gray60") +
  scale_fill_manual(NULL, values = c("brown", "tan3", "gray50"),
                    labels = c("Unique To Baker Hughes", "Unique To EIA", "Shared", "Unassociated"),
                    na.value = "gray30") +
@@ -472,7 +579,7 @@ total_diff %>%
       ) +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"),
+       plot.background = element_rect(fill = "gray20", color = "gray20"),
        plot.caption = element_text(color = "gray50", hjust = 1))
 ```
 
@@ -485,7 +592,7 @@ diff_bh %>%
  left_join(counties_map, .,
            by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
  ggplot() +
- geom_sf(aes(fill = !is.na(region))) +
+ geom_sf(aes(fill = !is.na(region)), size = 0.2) +
  scale_fill_manual(NULL, values = c("gray50", "brown"), labels = c("Not Unique", "Unique")) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Unique Counties",
@@ -494,7 +601,7 @@ diff_bh %>%
       ) +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 
 # Unique EIA
 diff_eia %>%
@@ -502,7 +609,7 @@ diff_eia %>%
  left_join(counties_map, .,
            by = c("NAME" = "county", "STATE_NAME" = "name")) %>%
  ggplot() +
- geom_sf(aes(fill = !is.na(region))) +
+ geom_sf(aes(fill = !is.na(region)), 0.2) +
  scale_fill_manual(NULL, values = c("gray50", "brown"), labels = c("Not Unique", "Unique")) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = "Unique Counties",
@@ -511,7 +618,7 @@ diff_eia %>%
       ) +
  theme_void() +
  theme(text = element_text(color = "white"),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Max Rig Count
@@ -537,10 +644,10 @@ max_on <- max_count %>%
 
 max_on %>%
  ggplot(aes(fill = RigCount)) +
- geom_sf(data = max_off, size = 0.05) +
- geom_sf(size = 0.05) +
+ geom_sf(data = max_off, size = 0.2) +
+ geom_sf(size = 0.2) +
  geom_sf(data = state_counties_lines, 
-         color = "gray70", fill = "brown", size = 0.05) +
+         color = "gray70", fill = "brown", size = 0.2) +
  scale_fill_viridis_c(NULL) +
  coord_sf(datum = NA, crs = st_crs(2163)) +
  labs(title = paste0("Max Rig Count"),
@@ -553,7 +660,7 @@ max_on %>%
        plot.caption = element_text(color = "gray50"),
        legend.direction = "horizontal",
        legend.position = c(0.55, 1.04),
-       plot.background = element_rect(fill = "gray20"))
+       plot.background = element_rect(fill = "gray20", color = "gray20"))
 ```
 
 ### Well Depth
@@ -636,7 +743,7 @@ no_growth %>%
          x = NULL)
 ```
 
-```{r plot_growth_weeks}
+```{r plot_growth_weeks, fig.path="imgs/rig_counts/misc"}
 growth <- map(unique(rc_basin$basin), ~{
     rc_basin %>%
         filter(basin == .x & key == "Total") %>%
@@ -669,4 +776,15 @@ growth %>%
        panel.grid.major.x = element_line(color = "gray30", linetype = "dotted"),
        panel.grid.major.y = element_blank(),
        panel.grid.minor.y = element_blank())
+```
+
+```{r trim, echo=FALSE}
+f <- c("~/R/oil/imgs/rig_counts/current_week_levels-1.png",
+       "~/R/oil/imgs/rig_counts/change_previous_week-1.png")
+
+f %>%
+ image_read() %>%
+ image_trim() %>%
+ as.list() %>%
+ map2(f, image_write)
 ```

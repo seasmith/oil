@@ -17,7 +17,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r setup_std, include=FALSE, purl=FALSE, eval=TRUE}
+```{r setup_std, include=FALSE, purl=TRUE, eval=TRUE}
 # ____ Library_Tidyverse_Setup
 library(tidyverse)
 library(lubridate)
@@ -70,8 +70,9 @@ old_inline <- knit_hooks$get("inline")
 
 ```{r setup_extra, include=FALSE}
 library(sf)
-library(ggridges)
+# library(ggridges)
 library(sp)
+library(magick)
 
 theme_set(blg_theme_default())
 
@@ -189,7 +190,7 @@ diff <- total_comparison %>%
   spread(key, value)
 ```
 
-```{r import_sf_data, include=FALSE}
+```{r import_sf_data, include=FALSE, cache=TRUE}
 maps_path <- "data/maps"
 
 load(file.path(maps_path, "us", "states_48.RData"))
@@ -296,16 +297,15 @@ gb <- ggplot() +
         plot.caption = element_text(hjust = 0))
 ```
 
-```{r plot_map_layout}
+```{r plot_map_layout, cache=TRUE, cache.vars='map_layout'}
 map_layout <- ggplot() +
  geom_point(aes(x = x, y = y, color = ele), us48, size = 0.01) +
  geom_sf(data = states_48, fill = "#00000000", color = "gray70") +
  geom_text(data = text_mods, aes(X, Y, label = Shale_play),
-           size = 3.5, family = "Open Sans", color = "lightyellow") +
+           size = 3.5, family = "Open Sans", color = "cornsilk") +
  geom_line(data = line_barnett, aes(X, Y), color = "gray80") +
  geom_line(data = line_cana_woodford, aes(X, Y), color = "gray80") +
  scale_color_gradient(low = "gray10", high = "gray80") +
- # scale_color_viridis_c() +
  scale_x_continuous(expand = expand_scale()) +
  scale_y_continuous(expand = expand_scale()) +
  guides(color = FALSE, alpha = FALSE, fill = FALSE) +
@@ -319,17 +319,17 @@ map_layout <- ggplot() +
                                       color = "gray20"))
 ```
 
-<!-- Rig count plots -->
-
-```{r plot_rig_count_canvas}
-rc_gb <- gb +
-  labs(title    = paste0("Rigging up, rigging down"),
-       subtitle = paste0("Rig count change from ",
-                         pretty_date(key_dates[["week_ago"]]),
-                         " to ",
-                         pretty_date(key_dates[["this_week"]]), "?"),
-       caption = paste0("Source: Baker Hughes Rig Count"))
+```{r save-base-map, fig.path="imgs/", eval=FALSE, dpi=600}
+map_layout +
+ coord_sf(datum = NA, crs = st_crs(102003)) +
+ theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+        legend.position = c(0.81, 0.13),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        plot.caption = element_text(vjust = -1))
 ```
+
+<!-- Rig count plots -->
 
 ```{r plot_rig_count_map}
 ##  Map
@@ -350,18 +350,10 @@ sf_plays_total <- st_transform(sf_plays_total, crs = st_crs(102003))
 plays_positive <- filter(sf_plays_total, sign(change_1wk) == 1)
 plays_neutral  <- filter(sf_plays_total, sign(change_1wk) == 0)
 plays_negative <- filter(sf_plays_total, sign(change_1wk) == -1)
+```
 
-rc_map <- map_layout  +
-  geom_sf(data = plays_neutral, color = "#00000000", alpha = 0.7, fill = neutral) +
-  geom_sf(data = plays_negative, color = "#00000000", alpha = 0.7, fill = negative) +
-  geom_sf(data = plays_positive, color = "#00000000", alpha = 0.7, fill = positive) +
-  coord_sf(datum = NA, crs = st_crs(102003)) +
-  theme(plot.margin = margin(0, 0, 0, 0, "pt"),
-        legend.position = c(0.81, 0.13),
-        axis.title = element_blank(),
-        axis.text = element_blank(),
-        plot.caption = element_text(vjust = -1))
 
+```{r create_legend, cache=TRUE, cache.vars='lgnd'}
 ###
 # Sacraficial plot (for map legend)
 ###
@@ -373,7 +365,55 @@ sacrifice <- ggplot() +
 lgnd <- lemon::g_legend(sacrifice)
 ```
 
+```{r create_base_map, cache=TRUE, cache.vars='base_map'}
+base_map <- map_layout +
+ coord_sf(datum = NA, crs = st_crs(102003)) +
+ theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+       legend.position = c(0.81, 0.13),
+       axis.title = element_blank(),
+       axis.text = element_blank(),
+       plot.caption = element_text(vjust = -1))
+
+base_map <- base_map +
+ annotation_custom(lgnd, xmin = 60000, xmax = 100000, ymin = -1220000, ymax = -1120000)
+
+ggsave(f_base_map <- "imgs/base-map.png",
+       base_map, dpi = 600)
+
+base_map <- f_base_map %>%
+ image_read() %>%
+ image_trim() %>%
+ as.raster()
+```
+
+```{r other_cache, cache=TRUE, cache.vars=c('bbox')}
+bbox <- st_bbox(states_48)
+```
+
+```{r eval=TRUE}
+rc_map <- ggplot() +
+    annotation_raster(base_map, bbox[["xmin"]], bbox[["xmax"]], bbox[["ymin"]], bbox[["ymax"]]) +
+    geom_sf(data = plays_neutral, color = "#00000000", alpha = 0.7, fill = neutral) +
+    geom_sf(data = plays_negative, color = "#00000000", alpha = 0.7, fill = negative) +
+    geom_sf(data = plays_positive, color = "#00000000", alpha = 0.7, fill = positive) +
+    scale_x_continuous(expand = expand_scale()) +
+    scale_y_continuous(expand = expand_scale()) +
+    coord_sf(datum = NA, crs = st_crs(102003),
+             xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
+             ylim = c(bbox[["ymin"]], bbox[["ymax"]])) +
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          legend.position = c(0.81, 0.13),
+          axis.title = element_blank(),
+          axis.text = element_blank(),
+          plot.caption = element_text(vjust = -1))
+```
+
+
 ```{r plot_rig_count_charts_week_ago}
+t_marg <- 0.1
+l_marg <- 0.0
+r_marg <- 0.5
+
 # Colors for bar charts.
 # Different than map colors since plays with 'no change'
 # are removed from the bar charts.
@@ -410,7 +450,8 @@ rc_percent_1wk <- this_week %>%
       y = "") +
  theme_gray20(bar_text_size) +
  theme(panel.grid.major.x = element_line(linetype = "dotted"),
-       panel.grid.major.y = element_blank())
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
 
 # Net change in value
 total_wk1_colors <- this_week$percent_1wk %>%
@@ -445,7 +486,8 @@ rc_change_1wk <- this_week %>%
       y = "") +
  theme_gray20(bar_text_size) +
  theme(panel.grid.major.x = element_line(linetype = "dotted"),
-       panel.grid.major.y = element_blank())
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
 ```
 
 ```{r plot_rig_count_charts_year_ago}
@@ -488,7 +530,8 @@ rc_percent_52wk <- this_week %>%
       y = "") +
  theme_gray20(bar_text_size) +
  theme(panel.grid.major.x = element_line(linetype = "dotted"),
-       panel.grid.major.y = element_blank())
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
 
 
 # Net change
@@ -518,33 +561,127 @@ rc_change_52wk <- this_week %>%
       y = "") +
  theme_gray20(bar_text_size) +
  theme(panel.grid.major.x = element_line(linetype = "dotted"),
-       panel.grid.major.y = element_blank())
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
 ```
 
-```{r plot_rig_count_build}
-##  GROBS
-# rc_map_grob <- ggplotGrob(rc_map)
-# rc_map_grob$grobs[[which(rc_map_grob$layout$name == "title")]] <- lgnd
-rc_map <- rc_map +
-    annotation_custom(lgnd, xmin = -1000, xmax = -6000, ymin = -1250000, ymax = -1150000)
-
-rc_grobs <- arrangeGrob(rc_map,
-                        rc_change_1wk,  rc_change_52wk,
-                        rc_percent_1wk, rc_percent_52wk,
-                        layout_matrix = rbind(c(1, 1),
-                                              c(2, 3),
-                                              c(4, 5)))
-
-rc_gb_grob <- ggplotGrob(rc_gb)
-rc_gb_grob$grobs[[which(rc_gb_grob$layout$name == "panel")]] <- rc_gb_grob$grobs[[which(rc_gb_grob$layout$name == "panel")]] %>%
-  addGrob(rc_grobs)
+```{r save-vars}
+root_path <- "imgs/rig_counts/intermediate"
 ```
 
-```{r plot_rig_count_draw, fig.height=13}
-grid.draw(rc_gb_grob)
-ggsave("imgs/rig_count_map.png", rc_gb_grob, dpi = 100)
-# ggsave("imgs/rig_count_map.svg", rc_gb_grob, dpi = 100)
+```{r save-map}
+ggsave(f_rc_map <- file.path(root_path, "rc_map.png"),
+       rc_map, dpi = 600)
 ```
+
+```{r save-bar-plots}
+w <- 3.5
+h <- 4
+
+ggsave(f_rc_change_1wk <- file.path(root_path, "rc_change_1wk.png"),
+       rc_change_1wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_change_52wk <- file.path(root_path, "rc_change_52wk.png"),
+       rc_change_52wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_percent_1wk <- file.path(root_path, "rc_percent_1wk.png"),
+       rc_percent_1wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_percent_52wk <- file.path(root_path, "rc_percent_52wk.png"),
+       rc_percent_52wk, width = w, height = h, dpi = 600)
+```
+
+
+```{r save-rig_count_map}
+top_bars <- f_rc_change_1wk %>%
+ image_read() %>%
+ image_join(
+  f_rc_change_52wk %>%
+   image_read()
+ ) %>%
+ image_append() %>%
+ image_resize("1800x")
+
+bot_bars <- f_rc_percent_1wk %>%
+ image_read() %>%
+ image_join(
+  f_rc_percent_52wk %>%
+   image_read()
+ ) %>%
+ image_append() %>%
+ image_resize("1800x")
+
+bars <- top_bars %>%
+ image_join(
+  image_blank(image_info(.)$width, 50, "gray20")
+  , .
+  , image_blank(image_info(.)$width, 50, "gray20")
+  , bot_bars
+ ) %>%
+ image_append(TRUE)
+
+# Stitch visualizations together
+major_basin <- f_rc_map %>%
+ image_read() %>%
+ image_trim() %>%
+ image_resize("1800x") %>%
+ image_join(bars) %>%
+ image_append(TRUE)
+
+# Add sub-title
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, 120, "gray20") %>%
+   image_annotate(paste0("Rig count change from "
+                         ,pretty_date(key_dates[["week_ago"]])
+                         ," to "
+                         ,pretty_date(key_dates[["this_week"]]))
+                  , font = "Lato", size = 60, color = "white"
+                  , location = geometry_point(5, 5))
+  , .
+ ) %>%
+ image_append(TRUE)
+
+# Add title
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, 100, "gray20") %>%
+   image_annotate(paste0("Major Basin Report")
+                  , font = "Lato", size = 90, color = "white"
+                  , location = geometry_point(5, 5))
+  , .
+ ) %>%
+ image_append(TRUE)
+
+# Add caption
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, height = 80, "gray20") %>%
+   image_annotate("Source: Baker Hughes Rig Count"
+                  , font = "Lato", color = "gray50", size = 50
+                  , location = geometry_point(5, 10))
+ ) %>%
+ image_append(TRUE) 
+
+# Add padding to left and right
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(25, image_info(.)$height, "gray20")
+  , .
+  , image_blank(25, image_info(.)$height, "gray20")
+ ) %>%
+ image_append()
+
+# Save image
+major_basin <- major_basin %>%
+ image_write("imgs/rig_counts/rig_count_map.png")
+
+```
+
+![](imgs/rig_counts/rig_count_map.png)
+
+<br>
+<br>
 
 <!-- Rig type plots -->
 
@@ -667,8 +804,8 @@ rt_gb_grob$grobs[[which(rt_gb_grob$layout$name == "panel")]] <- rt_gb_grob$grobs
 ```{r plot_rig_type_draw, fig.height=9}
 # old fig.height=9.2
 grid.draw(rt_gb_grob)
-ggsave("imgs/rig_count_timeline.png", rt_gb_grob, dpi = 100)
-# ggsave("imgs/rig_count_timeline.svg", rt_gb_grob, dpi = 100)
+ggsave("imgs/rig_counts/rig_count_timeline.png", rt_gb_grob, dpi = 300)
+# ggsave("imgs/rig_count_timeline.svg", rt_gb_grob, dpi = 300)
 ```
 
 ```{r d3_csv, include=FALSE}

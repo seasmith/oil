@@ -178,11 +178,11 @@ sf_text <- sf_text %>%
 # FOR ALBERS EQUAL AREA
 text_mods <- sf_text %>%
   cbind(tibble(offset_X = c( 5.8,  1.8, # Ardmore,      Fayetteville
-                             4.3,  5.4, # Barnett,      Arkoma
+                             4.3,  5.6, # Barnett,      Arkoma
                             -5.8,  2.0, # Cana,         Haynesville
                             -4.6,       # Eagle Ford
                             -4.5, -5.7, # DJ-Niobrara, Marcellus
-                            -5.4, -4.2, # Utica, Granite Wash
+                            -5.4, -4.5, # Utica, Granite Wash
                              0.0, -3.8, # Mississippian, Permian
                             -3.7))) %>% # Williston
   cbind(tibble(offset_Y = c(-0.9,  0.9, # Ardmore,      Fayetteville
@@ -270,7 +270,7 @@ line_cana_woodford$Y[2] <- line_cana_woodford$Y[2] - 130000
 ```{r text_mods2}
 text_mods2 <- sf_text %>%
   cbind(tibble(offset_X = c( 1.8,  1.8, # Ardmore,      Fayetteville
-                             4.3,  1.4, # Barnett,      Arkoma
+                             4.3,  1.6, # Barnett,      Arkoma
                             -5.8,  2.0, # Cana,         Haynesville
                             -4.6,       # Eagle Ford
                             -4.5, -5.7, # DJ-Niobrara, Marcellus
@@ -278,7 +278,7 @@ text_mods2 <- sf_text %>%
                              0.0, -3.8, # Mississippian, Permian
                             -3.7))) %>% # Williston
   cbind(tibble(offset_Y = c(-0.9,  0.9, # Ardmore,      Fayetteville
-                            -1.0, -0.5, # Barnett,      Arkoma
+                            -1.0, -0.4, # Barnett,      Arkoma
                              1.3,  0.0, # Cana,  Haynesville
                             -0.7,       # Eagle Ford
                             -1.0, -2.7, # DJ-Niobrara, Marcellus
@@ -296,7 +296,7 @@ text_mods2 <- text_mods2 %>%
              Shale_play == "Ardmore Woodford" ~ new_X * 0.96,  #$ + pos
              Shale_play == "Fayetteville" ~ new_X * 1.01,      #$ + pos
              Shale_play == "Barnett" ~ new_X * 1.045,           #$ + pos
-             Shale_play == "Arkoma Woodford" ~ new_X * 0.965,  #$ + pos
+             Shale_play == "Arkoma Woodford" ~ new_X * 0.15,  #$ + pos
              Shale_play == "Cana Woodford" ~ new_X * 0.965,    #$ - neg
              Shale_play == "Haynesville"   ~ new_X * 0.99,
              Shale_play == "Eagle Ford" ~ new_X * 0.965,       #$ - neg
@@ -358,7 +358,7 @@ text_mods2 <- text_mods2 %>%
     cbind(as_tibble(text_mods2 %>% select(-(X:Y))), .)
 ```
 
-```{r modify_new_states_map}
+```{r modify_new_states_map, eval=FALSE}
 states_map_adjusted_simp <- states_map_adjusted_simp %>%
     filter(!STATE_ABBR %in% c("PR", "VI") &
                TYPE == "Land")
@@ -371,7 +371,7 @@ if (! dir.exists("data/maps/basins")) dir.create("data/maps/basins")
 maps_path <- "data/maps"
 
 save("states_48", file = file.path(maps_path, "us/states_48.RData"))
-save(states_map_adjusted_simp, file = "~/R/oil/data/maps/states_map_adjusted_simp.RData")
+# save(states_map_adjusted_simp, file = "~/R/oil/data/maps/states_map_adjusted_simp.RData")
 
 save("sf_plays",  file = file.path(maps_path, "basins/sf_plays.RData"))
 save("sf_plays",  file = "~/R/misc/maps/sf_plays.RData")

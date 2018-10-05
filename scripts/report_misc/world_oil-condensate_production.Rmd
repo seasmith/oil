@@ -1,0 +1,73 @@
+```{r dependencies, include=FALSE}
+library(tidyverse)
+library(extrafont); loadfonts("win", quiet = TRUE)
+library(ggrepel)
+library(magick)
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+import <- FALSE
+```
+
+```{r import-data, eval=import}
+source("~/R/oil/scripts/import/world-oil-condensate-production.R", echo = FALSE)
+```
+
+
+```{r load-data}
+load("~/R/oil/data/prod/wocp.RData")
+```
+
+```{r plot-data}
+top_three_labs <- wocp %>%
+ filter(grepl("United States|Saudi Arabia|Russia", country)) %>%
+ filter(date == max(date)) %>%
+ mutate(prod = prod / 1000) %>%
+ mutate(date = date + 60)
+
+p_top_three <- wocp %>%
+ filter(grepl("United States|Saudi Arabia|Russia", country)) %>%
+ mutate(prod = prod / 1000) %>%
+ ggplot(aes(date, prod, color = country)) +
+ geom_line() +
+ geom_text_repel(aes(label = country), data = top_three_labs, 
+                 hjust = 0, direction = "y", segment.colour = "#00000000") +
+ scale_x_date(NULL, expand = expand_scale(),
+              breaks = as.Date(c("1995-01-01", "2000-01-01", "2005-01-01", "2010-01-01", "2015-01-01")),
+              labels = c(1995, 2000, 2005, 2010, 2015),
+              limits = c(min(wocp$date), max(wocp$date) + 2700)) +
+ scale_y_continuous(NULL, labels = scales::comma) +
+ scale_color_manual(values = c("firebrick", "darkgreen", "steelblue"), guide = FALSE) +
+ theme_classic(base_size = 15, base_family = "Lato")
+
+ggsave(f_top_three <- "~/R/oil/imgs/misc/wocp_top_three.png", p_top_three,
+       width = 5, height = 5, dpi = 600)
+
+
+f_top_three %>%
+ image_read() %>%
+ image_join(
+  image_blank(image_info(.)$width, 580, "white") %>%
+   image_annotate("The Big Three"
+                  , font = "Lato", size = 165, color = "black"
+                  , location = geometry_point(5, 5)) %>%
+   image_annotate("A new rivalry for the title of the #1 oil producer."
+                  , font = "Lato", size = 135, color = "black"
+                  , location = geometry_point(5, 200)) %>%
+   image_annotate("Production (Million Barrels Per Day)"
+                  , font = "Lato", size = 115, color = "black"
+                  , location = geometry_point(5, 450))
+  , .
+ ) %>%
+ image_append(TRUE) %>%
+ image_join(
+  image_blank(image_info(.)$width, 130, "white") %>%
+   image_annotate("Source: US Energy Information Administration"
+                  , font = "Lato", size = 90, color = "gray50"
+                  , location = geometry_point(1135, 0))
+ ) %>%
+ image_append(TRUE) %>%
+ image_resize("1000x")
+```
