@@ -24,10 +24,14 @@ library(lubridate)
 library(sf)
 library(magick)
 library(extrafont); loadfonts("win", quiet = TRUE)
+library(blg)
 # library(ggalt)
 
 # Formatting
 pretty_date <- function(n) format(n, "%B %d, %Y")
+
+# temp folder for dump files
+tmp_dir <- tempdir()
 
 # knitr options
 knitr::opts_chunk$set(warning = FALSE)
@@ -36,8 +40,11 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r load-data}
-# Rig count
+# Rig count (master)
 load("../../data/rig_counts/rc_master.RData")
+
+# Rig count (basin)
+load("../../data/rig_counts/rc_basin.RData")
 
 # Onshore map
 load("../../data/maps/us/counties_map.RData")
@@ -166,32 +173,35 @@ x_labels <- seq(2014, 2018, 2)
 ```
 
 ```{r plots-perm-vs-all-others-3, dpi=300}
+split_in_3_labs <- split_in_3 %>%
+ filter(PublishDate == max(PublishDate)) %>%
+ mutate(n = if_else(l == "Permian", n + 20, n - 60),
+        PublishDate = PublishDate + 45)
+
 perm_vs_others <- ggplot(split_in_3, aes(PublishDate, n, color = l)) +
  geom_line(size = l_size) +
- geom_text(aes(label = l), family = "Lato", size = 7, hjust = 1,
-           data = tibble(PublishDate = c(as.Date("2018-09-05"), as.Date("2018-09-05"), as.Date("2018-09-05")),
-                         n = c(505, 300, 125),
-                         l = c("Permian", "All Other\nMajor Basins", "Non-Major Basins"))) +
+ geom_text(aes(label = l), family = "Lato", size = 7, hjust = 1
+           , data = split_in_3_labs) +
  scale_color_manual(values = c(pals::brewer.greens(10)[4],
                                pals::brewer.greens(10)[1],
-                               pals::brewer.greens(10)[7]
-                               ),
-                    guide = FALSE) +
+                               pals::brewer.greens(10)[7])
+                    , guide = FALSE) +
  scale_x_date(NULL, expand = c(0, 0), labels = x_labels,
               breaks = x_breaks,
               limits = c(x_min, x_max)) +
  scale_y_continuous(NULL) +
- labs(title = "It Is Outpacing Its Peers",  # The Resurgent Permian
-      subtitle = "Rig Count") +
- theme_classic(base_family = b_family, base_size = b_size) +
- theme(text = element_text(color = "white", family = "Lato"), 
-       axis.line = element_line(color = "gray80"), 
-       axis.text = element_text(color = "gray80"),
-       axis.ticks = element_line(color = "gray80"),
-       panel.background = element_rect(fill = "gray20", color = "gray20"),
-       plot.caption = element_text(color = "gray50", size = 10),
-       plot.background = element_rect(fill = "gray20", color = "gray20"),
-       legend.background = element_rect(fill = "gray20"))
+ labs(title = "It Is Outpacing Its Peers"
+      , subtitle = "Rig Count") +
+ # theme_classic(base_family = b_family, base_size = b_size) +
+ # theme(text = element_text(color = "white", family = "Lato"), 
+ #       axis.line = element_line(color = "gray80"), 
+ #       axis.text = element_text(color = "gray80"),
+ #       axis.ticks = element_line(color = "gray80"),
+ #       panel.background = element_rect(fill = "gray20", color = "gray20"),
+ #       plot.caption = element_text(color = "gray50", size = 10),
+ #       plot.background = element_rect(fill = "gray20", color = "gray20"),
+ #       legend.background = element_rect(fill = "gray20"))
+ blg_theme_default(text_size = b_size)
 
 ggsave(perm_vs_others_f <- "imgs/perm_vs_others.png", perm_vs_others,
        width = 9, height = 9, dpi = 600)
@@ -209,37 +219,40 @@ tex_nm_df <- rc_master %>%
   summarize(n = mean(n)) %>% #
   mutate(PublishDate = make_date(year = year, month = month, day = 1L),
          l = if_else(`State/Province` == "TEXAS", "Texas", "New Mexico")) 
+tex_nm_labs <- tex_nm_df %>%
+ ungroup() %>%
+ filter(PublishDate == max(PublishDate, na.rm = TRUE)) %>%
+ mutate(n = n + 20,
+        PublishDate = PublishDate + 45)
+
 
 tex_nm <- tex_nm_df %>% #
-  ggplot(aes(PublishDate, n, color = l)) +
-  geom_line(size = l_size) +
-  geom_text(aes(label = l), family = "Lato", size = 7, hjust = 1,
-            data = tibble(
-             PublishDate = c(as.Date("2018-11-17"), as.Date("2018-11-17")),
-             n = c(400, 105),
-             l = c("Texas", "New Mexico")
-            )) +
-  scale_x_date(NULL, expand = c(0, 0),  labels = x_labels,
-               breaks = x_breaks,
-               limits = c(x_min, x_max)) +
-  scale_y_continuous(NULL) +
-  scale_color_manual(values = c(pals::brewer.oranges(10)[4],
-                                pals::brewer.oranges(10)[6]), 
-                     guide = FALSE) +
-  labs(title = "The Texas Portion is the Largest",
-       subtitle = "Rig Count"#,
-       # caption = "Source: Baker Hughes"
-       ) +
-  theme_classic(base_family = b_family, base_size = b_size) +
-  theme(text = element_text(color = "white", family = "Lato"), 
-        axis.line = element_line(color = "gray80"), 
-        axis.text = element_text(color = "gray80"),
-        axis.ticks = element_line(color = "gray80"),
-        panel.background = element_rect(fill = "gray20", color = "gray20"),
-        plot.caption = element_text(color = "gray50", size = 10),
-        plot.background = element_rect(fill = "gray20", color = "gray20"),
-        legend.direction = "horizontal",
-        legend.position = c(0.55, 1.04))
+ ggplot(aes(PublishDate, n, color = l)) +
+ geom_line(size = l_size) +
+ geom_text(aes(label = l), family = "Lato", size = 7, hjust = 1,
+           data = tex_nm_labs) +
+ scale_x_date(NULL, expand = c(0, 0),  labels = x_labels,
+              breaks = x_breaks,
+              limits = c(x_min, x_max)) +
+ scale_y_continuous(NULL) +
+ scale_color_manual(values = c(pals::brewer.oranges(10)[4],
+                               pals::brewer.oranges(10)[6]), 
+                    guide = FALSE) +
+ labs(title = "The Texas Portion is the Largest",
+      subtitle = "Rig Count"#,
+      # caption = "Source: Baker Hughes"
+ ) +
+ # theme_classic(base_family = b_family, base_size = b_size) +
+ # theme(text = element_text(color = "white", family = "Lato"), 
+ #       axis.line = element_line(color = "gray80"), 
+ #       axis.text = element_text(color = "gray80"),
+ #       axis.ticks = element_line(color = "gray80"),
+ #       panel.background = element_rect(fill = "gray20", color = "gray20"),
+ #       plot.caption = element_text(color = "gray50", size = 10),
+ #       plot.background = element_rect(fill = "gray20", color = "gray20"),
+ #       legend.direction = "horizontal",
+ #       legend.position = c(0.55, 1.04))
+ blg_theme_default(text_size = b_size)
 
 ggsave(tex_nm_f <- "imgs/tex_nm.png", tex_nm,
        width = 9, height = 9, dpi = 600)
@@ -273,7 +286,7 @@ vs_perm <- vs_perm_df %>%
  geom_line(aes(PublishDate, n, color = loc), size = l_size) +
  geom_text(aes(x, y, label = l, color = l), family = "Lato", size = 7, hjust = 1,
            tibble(x = c(as.Date("2018-11-17"), as.Date("2018-11-17"), as.Date("2018-11-17")),
-                  y = c(70, 35, 100),
+                  y = c(68, 42, 108),
                   l = c("Eagle\nFord", "Williston", "Permian (New Mexico)"))) +
  scale_x_date(NULL, expand = c(0, 0), labels = x_labels,
               breaks = x_breaks,
@@ -283,16 +296,17 @@ vs_perm <- vs_perm_df %>%
  guides(color = FALSE) +
  labs(title = "But the New Mexico Permian Holds Its Own",
       subtitle = "Rig Count") +
- theme_classic(base_family = b_family, base_size = b_size) +
- theme(text = element_text(color = "white", family = "Lato"), 
-       axis.line = element_line(color = "gray80"), 
-       axis.text = element_text(color = "gray80"),
-       axis.ticks = element_line(color = "gray80"),
-       panel.background = element_rect(fill = "gray20", color = "gray20"),
-       plot.caption = element_text(color = "gray50", size = 10),
-       plot.background = element_rect(fill = "gray20", color = "gray20"),
-       legend.direction = "horizontal",
-       legend.position = c(0.55, 1.04))
+ # theme_classic(base_family = b_family, base_size = b_size) +
+ # theme(text = element_text(color = "white", family = "Lato"), 
+ #       axis.line = element_line(color = "gray80"), 
+ #       axis.text = element_text(color = "gray80"),
+ #       axis.ticks = element_line(color = "gray80"),
+ #       panel.background = element_rect(fill = "gray20", color = "gray20"),
+ #       plot.caption = element_text(color = "gray50", size = 10),
+ #       plot.background = element_rect(fill = "gray20", color = "gray20"),
+ #       legend.direction = "horizontal",
+ #       legend.position = c(0.55, 1.04))
+ blg_theme_default(text_size = b_size)
 
 ggsave(vs_perm_f <- "imgs/vs_perm.png", vs_perm, width = 9, height = 9, dpi = 600)
 ```
@@ -328,7 +342,7 @@ perm_map <- perm %>%
  # st_crop(po_bbox) %>%
  ggplot() +
  geom_sf(aes(fill = n)) +
- geom_sf(data = tnmo_lines, color = "gray90") +
+ geom_sf(data = tnmo_lines, color = "black") +
  scale_fill_gradientn("Rigs", colors = pals::viridis(256)) +
  scale_x_continuous(expand = expand_scale()) +
  scale_y_continuous(expand = expand_scale()) +
@@ -338,29 +352,35 @@ perm_map <- perm %>%
  guides(fill = guide_colorbar(title.position = "top", barwidth = unit(5, "cm"),
                               title.hjust = 1)) +
  theme_void(base_family = b_family, base_size = b_size - 4) +
- theme(plot.background = element_rect("gray20", "gray20", size = 0),
+ theme(plot.background = element_rect("white", "white", size = 0),
        legend.position = c(0.52, 0.23), # 0.22, 0.25
        legend.direction = "horizontal",
-       legend.text = element_text(color = "white"),
-       legend.title = element_text(color = "white"))
+       # legend.text = element_text(color = "white"),
+       # legend.title = element_text(color = "white"),
+       NULL)
+ # blg_theme_default(text_size = b_size - 4)
 
 ggsave(perm_map_f <- "imgs/perm_map.png", perm_map, width = 7, height = 7, dpi = 600) # 7, 7
 ```
 
 ```{r}
+bg_col <- "white"
+f_col  <- "black" 
+
+
 m <- image_read(perm_map_f) %>%
  image_trim() %>%
  # image_resize("600x") %>%
- # image_border("gray20", "50x0")
+ # image_border(bg_col, "50x0")
  image_resize("700x") %>%
  image_crop("627x573+40+95") #%>% # 660x570
- # image_border("gray20", "20x0")  #20x0
+ # image_border(bg_col, "20x0")  #20x0
 
-top_border <- image_blank(627, 85, "gray20") # 90
-bot_border <- image_blank(627, 42, "gray20") # 40
+top_border <- image_blank(627, 85, bg_col) # 90
+bot_border <- image_blank(627, 42, bg_col) # 40
 
-side1_border <- image_blank(60, 700, "gray20") # 40
-side2_border <- image_blank(13, 700, "gray20") # 20
+side1_border <- image_blank(60, 700, bg_col) # 40
+side2_border <- image_blank(13, 700, bg_col) # 20
  
 m <- m %>%
  image_join(top_border, ., bot_border) %>%
@@ -368,7 +388,7 @@ m <- m %>%
  image_join(side1_border, ., side2_border) %>%
  image_append() %>%
  image_annotate("The Permian is the Most Actively Drilled Oil and\nGas Region in the United States",
-                font = "Lato", size = 30, color = "white",
+                font = "Lato", size = 30, color = f_col,
                 location = geometry_point(60, 6))
 
 x <- image_read(perm_vs_others_f) %>%
@@ -386,11 +406,189 @@ top <- image_join(m, x) %>%
 bot <- image_join(x2, x3) %>%
  image_append()
 
+# Join the two halves
 top %>%
  image_join(bot) %>%
- image_append(stack = TRUE)
+ image_append(stack = TRUE) %>%
+ # Add the title
+ image_join(
+  image_blank(image_info(.)$width, 100, bg_col) %>%
+   image_annotate("A Look At The Permian"
+                  , font = "Lato", size = 65, color = f_col
+                  , location = geometry_point(5, 5))
+  , .
+ ) %>%
+ # Join the title and graphs
+ image_append(TRUE) %>%
+ # Add caption
+ image_join(
+  image_blank(image_info(.)$width, 50, bg_col) %>%
+   image_annotate("Source: Baker Hughes Rig Count"
+                  , font = "Lato", size = 30, color = "gray50"
+                  , location = geometry_point(5, 5))
+ ) %>%
+ image_append(TRUE) %>%
+ image_resize("1200x")
 ```
 
+```{r plot-cum-positive-weeks}
+cum_pos <- rc_basin %>%
+ group_by(basin, Date) %>%
+ summarize_at(vars(value), sum, na.rm = TRUE) %>%
+ ungroup() %>%
+ group_by(basin, year = year(Date)) %>%
+ mutate(n = value - lag(value),
+        n = if_else(n %>% is.na(), 0L, n)) %>%
+ filter(year >= 2015) %>%
+ ungroup() %>%
+ group_by(basin, year = year(Date)) %>%
+ mutate(csum = cumsum(n > 0),
+        Date = update(Date, year = 2018)) %>%
+ ungroup() %>%
+ group_by(basin, year) %>%
+ mutate(week = row_number()) %>%
+ ungroup()
+
+# rc_basin %>%
+#  group_by(basin, Date) %>%
+#  summarize_at(vars(value), sum, na.rm = TRUE) %>%
+#  mutate(n = value - lag(value)) %>%
+#  filter(year(Date) >= 2015) %>%
+#  mutate(csum = cumsum(n > 0)) %>%
+#  ungroup() %>%
+#  ggplot(aes(Date, csum, color = basin)) +
+#  geom_line() +
+#  blg_theme_default() +
+#  theme(panel.grid.major.x = element_blank())
+
+# cum_pos %>%
+#  ggplot(aes(Date, csum, color = basin)) +
+#  geom_line() +
+#  scale_x_date(breaks = as.Date(c("2018-01-01", "2018-04-01", "2018-07-01", "2018-10-01")),
+#               labels = c("Jan", "Apr", "Jul", "Oct"),
+#               limits = as.Date(c("2018-01-01", "2018-12-31"))) +
+#  scale_color_manual(values = pals::cols25(15)) +
+#  facet_wrap(vars(year), scales = "free_x", nrow = 1) +
+#  blg_theme_default() +
+#  theme(panel.grid.major.x = element_blank())
+
+l_cum_pos_lab1 <- cum_pos %>%
+ ungroup() %>%
+ filter(basin == "Permian") %>%
+ group_by(year) %>%
+ filter(Date == max(Date)) 
+
+p_cum_pos1 <- cum_pos %>%
+ ungroup() %>%
+ filter(basin == "Permian") %>%
+ mutate(month = month(Date, TRUE)) %>% 
+ ggplot(aes(week, csum, color = factor(year))) +
+ geom_line() +
+ geom_text(aes(label = year), l_cum_pos_lab1, nudge_y = 1.5) +
+ scale_x_continuous(NULL,
+                    breaks = c(1, 14, 27, 40),
+                    labels = c("Jan", "Apr", "Jul", "Oct")) +
+ scale_y_continuous(NULL) +
+ scale_color_manual(values = c("plum3", "plum3", "plum3", "plum4"),
+                    guide = FALSE) +
+ blg_theme_default() +
+ theme(panel.grid.major.x = element_blank())
+
+ggsave(f_cum_pos1 <- tempfile("p_cum_pos1", tmp_dir, ".png"),
+       p_cum_pos1, width = 5, height = 4, dpi = 600)
+
+
+
+l_cum_pos_lab2 <- cum_pos %>%
+ group_by(basin, year) %>%
+ mutate(net = cumsum(n)) %>%
+ filter(basin == "Permian") %>%
+ group_by(year) %>%
+ filter(Date == max(Date)) 
+
+p_cum_pos2 <- cum_pos %>%
+ group_by(basin, year) %>%
+ mutate(net = cumsum(n)) %>%
+ filter(basin == "Permian") %>%
+ ungroup() %>%
+ ggplot(aes(week, net, color = factor(year))) +
+ geom_line() +
+ geom_text(aes(label = year), l_cum_pos_lab2, nudge_y = 30) +
+ scale_x_continuous(NULL,
+                    breaks = c(1, 14, 27, 40),
+                    labels = c("Jan", "Apr", "Jul", "Oct")) +
+ scale_y_continuous(NULL) +
+ scale_color_manual(values = c("plum3", "plum3", "plum3", "plum4"),
+                    guide = FALSE) +
+ blg_theme_default() +
+ theme(panel.grid.major.x = element_blank())
+
+# Save
+ggsave(f_cum_pos2 <- tempfile("p_cum_pos2", tmp_dir, ".png"),
+       p_cum_pos2, width = 5, height = 4, dpi = 600)
+
+# Append headings and stitch together
+hh <- 200
+hf <- 150
+gx <- 30
+
+# left-hand plot with title
+f_cum_pos1 %>%
+ image_read() %>%
+ image_join(
+  image_blank(image_info(.)$width, hh, bg_col) %>%
+   image_annotate("Cumulative Weeks of Positive Growth"
+                  , font = "Lato", size = hf, color = f_col
+                  , location = geometry_point(gx, 5))
+  , .
+ ) %>%
+ image_append(TRUE) %>%
+ 
+ # right-hand plot with title
+ image_join(
+  f_cum_pos2 %>%
+   image_read() %>%
+   image_join(
+    image_blank(image_info(.)$width, hh, bg_col) %>%
+     image_annotate("Cumulative Change in Rig Count"
+                    , font = "Lato", size = hf, color = f_col
+                    , location = geometry_point(gx, 5))
+    , .
+   ) %>%
+   image_append(TRUE)
+ ) %>%
+ image_append() %>%
+ 
+ # sub-title
+ image_join(
+  image_blank(image_info(.)$width, hh * 1.6, bg_col) %>%
+   image_annotate("The Permian has been consistantly growing since mid-2016."
+                  , font = "Lato", size = hf, color = f_col
+                  , location = geometry_point(gx, 5))
+  , .
+ ) %>%
+ image_append(TRUE) %>%
+ 
+ # main title
+ image_join(
+  image_blank(image_info(.)$width, hh * 1.3, bg_col) %>%
+   image_annotate("Rig Count Changes In The Permian"
+                  , font = "Lato", size = hf * 1.4, color = f_col
+                  , location = geometry_point(gx, 5))
+  , .
+ ) %>%
+ image_append(TRUE) %>%
+ 
+ # caption
+ image_join(
+  image_blank(image_info(.)$width, hh * 0.8, bg_col) %>%
+   image_annotate("Source: Baker Hughes Rig Count"
+                  , font = "Lato", size = hf * 0.8, color = "gray50"
+                  , location = geometry_point(gx, 5))
+ ) %>%
+ image_append(TRUE) %>%
+ image_resize("1200x")
+```
 
 <!-- UNUSED -->
 

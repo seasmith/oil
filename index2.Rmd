@@ -19,8 +19,11 @@ editor_options:
 
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
 library(tidyverse)
+library(lubridate)
 library(sf)
 library(magick)
+library(blg)
+library(extrafont); loadfonts("win", TRUE)
 
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(message = FALSE)
@@ -29,11 +32,14 @@ knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(dpi = 300)
 
 # Set friday to TRUE or FALSE
-# run <- weekdays(Sys.Date()) != "Friday"
-run <- FALSE
+run <- weekdays(Sys.Date()) != "Friday"
+# run <- FALSE
 
 # Make pretty dates
 pretty_date <- function(n) format(n, "%B %d, %Y")
+
+# Temporary directory to store interprocess images
+tmp_dir <- tempdir()
 ```
 
 ```{r import_maps}
@@ -777,6 +783,8 @@ growth %>%
        panel.grid.major.y = element_blank(),
        panel.grid.minor.y = element_blank())
 ```
+
+
 
 ```{r trim, echo=FALSE}
 f <- c("~/R/oil/imgs/rig_counts/current_week_levels-1.png",
