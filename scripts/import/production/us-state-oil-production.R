@@ -57,7 +57,7 @@ meta <- cats %>%
 meta <- meta %>%
  map(purrr::pluck, "category") 
 
-meta_meta <- meta %>%
+meta_extra <- meta %>%
  map(~{.x[names(.x) %not_in% "childseries"]})
 
 meta <- meta %>%
@@ -68,6 +68,29 @@ meta <- meta %>%
 meta_series <- meta %>%
  map(pull, "series_id") %>%
  map2(meta %>% map(pull, "name"), set_names)
+
+
+
+# SAVE META DATA ----------------------------------------------------------
+
+prod_api_meta <- meta %>%
+ map(~mutate(.x, 
+             updated = as.POSIXct(updated, format = "%d-%b-%y %I.%M.%S %p")))
+
+save(prod_api_meta, file = "~/R/oil/data/prod/prod_api_meta.RData")
+
+load("~/R/oil/data/prod/update_schedule.RData")
+
+last_updated <- prod_api_meta %>%
+ map_df(~distinct(.x, updated)) %>%
+ pull(updated) %>%
+ max()
+
+update_schedule <- update_schedule %>%
+ mutate(executed = if_else(category == "prod_api", Sys.time(), executed),
+        updated =  if_else(category == "prod_api", updated, updated))
+
+save(update_schedule, file = "~/R/oil/data/prod/update_schedule.RData")
 
 
 
