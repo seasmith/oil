@@ -13,8 +13,8 @@ library(rmarkdown)
 
 url <- "http://phx.corporate-ir.net/phoenix.zhtml?c=79687&p=irol-reportsother"
 
-previous_pivot_link <- readLines("links/previous_pivot_link.txt")
-previous_count_link <- readLines("links/previous_count_link.txt")
+previous_pivot_link <- readLines("data/links/previous_pivot_link.txt")
+previous_count_link <- readLines("data/links/previous_count_link.txt")
 counter <- 1
 
 repeat {
@@ -52,8 +52,8 @@ if (counter > 120) {
 } else {
 
  # Write new previous_*_link variables
- ppl_con <- file("links/previous_pivot_link.txt", open = "w")
- pcl_con <- file("links/previous_count_link.txt", open = "w")
+ ppl_con <- file("data/links/previous_pivot_link.txt", open = "w")
+ pcl_con <- file("data/links/previous_count_link.txt", open = "w")
  
  write(pivot_link, ppl_con)
  write(count_link, pcl_con)
@@ -79,11 +79,11 @@ if (counter > 120) {
  close(ct_con)
  
  # Convert and get data
- system("cscript scripts/report/ConvertToCSV.vbs")
- system("Rscript scripts/report/get_rig_count_data.R")
+ system("cscript scripts/tidy/rig-counts/ConvertToCSV.vbs")
+ system("Rscript scripts/tidy/rig-counts/csv-to-RData.R")
  
- render("index.Rmd",  output_file = "index.html")
- render("index2.Rmd", output_file = "index2.html")
+ render("scripts/pubs/index.Rmd",  output_file = "~/R/oil/pubs/index.html")
+ render("scripts/pubs/index2.Rmd", output_file = "~/R/oil/pubs/index2.html")
  
 }
 
