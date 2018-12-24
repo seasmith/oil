@@ -20,16 +20,15 @@ og :
 library(tidyverse)
 library(lubridate)
 library(forcats)
-library(stringi)
 
 # ---- Library_ploting_Setup
 library(grid)
 library(gridExtra)
-library(ggExtra)
-library(GGally)
+# library(ggExtra)
+# library(GGally)
 library(ggalt)
 library(scales)
-library(extrafont)
+library(extrafont); loadfonts("win", quiet = TRUE)
 
 # ---- Library_Web_Setup
 library(rvest)
@@ -44,11 +43,13 @@ library(blg)
 ```
 
 ```{r setup_knitr_opts_chunk_std, include=FALSE}
+library(knitr)
+
 # ---- Opts_Setup
-knitr::opts_chunk$set(echo =  FALSE)
-knitr::opts_chunk$set(fig.height = 7)
-knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(warning = FALSE)
+opts_chunk$set(echo = FALSE)
+opts_chunk$set(fig.height = 7)
+opts_chunk$set(message = FALSE)
+opts_chunk$set(warning = FALSE)
 ```
 
 ```{r setup_knitr_opts_hooks_std, include=FALSE}
@@ -59,7 +60,7 @@ old_plot   <- knit_hooks$get("plot")
 # ---- Hooks_Setup
 knit_hooks$set(inline = function(x) {
   if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
-    if (is.character(x)) return(stringr::str_to_title(x)) else
+    if (is.character(x)) return(str_to_title(x)) else
       return(x)
 })
 
@@ -73,10 +74,6 @@ options(scipen = 100)
 
 old_digits <- getOption("digits")
 options(digits = 2)
-```
-
-```{r setup_r_misc_std, include=FALSE}
-loadfonts("win")
 ```
 
 <!-- Extra setup -->
@@ -104,24 +101,25 @@ pink <- "#ac3fb1"
 <!-- Load data -->
 
 ```{r load_data, include=FALSE}
-ref1 <- "~/R/misc/oil/US/rig_counts"
-ref2 <- "~/R/misc/maps"
+data_ref <- "~/R/oil/data"
+ref1 <- file.path(data_ref, "rig_counts")
+ref2 <- file.path(data_ref, "maps")
 
 # Rig count - master
 load(file.path(ref1, "rc_master.RData"))
 
 # Rig count - state
-load("~/R/misc/oil/US/rig_counts/rc_state.RData")
+load(file.path(ref1, "rc_state.RData"))
 
 # US counties map (Albers projection)
-load(file.path(ref2, "counties_2014_adjusted_simp.RData"))
+load(file.path(ref2, "us/counties_2014_adjusted_simp.RData"))
 
 # US states map (Albers projection)
-load("~/R/misc/maps/states_map_adjusted_simp.RData")
+load(file.path(ref2, "us/states_map_adjusted_simp.RData"))
 
 # EIA Region counties
 cols <- c("state", "county", "state_id", "county_id", "region")
-xl_path <- "~/R/misc/oil/US/production/eia_drilling_report.xlsx"
+xl_path  <- file.path(ref2, "eia_drilling_report.xlsx")
 sh_names <- excel_sheets(xl_path)
 xl_regions <- read_excel(xl_path, sh_names[sh_names == "RegionCounties"], NULL, cols, c(rep("text", 2), "numeric", rep("text", 2)), skip = 1L)
 ```
@@ -244,23 +242,22 @@ image_read(ec_path) %>%
 
 ```{r not_every_state}
 rc_state %>%
-  mutate(location = stringr::str_replace(location, "^N\\.", "North"),
-         location = stringr::str_replace(location, "^S\\.", "South"),
-         location = stringr::str_replace(location, "^W\\.", "West"),
-         location = stringr::str_replace(location, "^Mass\\.", "Massachusetts"),
-         location = stringr::str_replace(location, "^Wash\\.", "Washington"),
-         location = stringr::str_replace(location, "Is\\.", "Island"),
-         location = stringr::str_replace(location, "^Penn\\.", "Pennsylvania"),
-         location = stringr::str_replace(location, "^D\\.C\\.", "District of Columbia"),
-         location = stringr::str_replace(location, "^North Hamp\\.", "New Hampshire"),
-         location = stringr::str_replace(location, "^North Jersey", "New Jersey"),
-         location = stringr::str_replace(location, "^North Mexico", "New Mexico"),
-         location = stringr::str_replace(location, "^North York", "New York"),
-         location = stringr::str_replace(location, "^Tennesee", "Tennessee"),
-         location = stringr::str_replace(location, "^West Virgina", "West Virginia"),
-         location = stringr::str_replace(location, "^Minn\\.", "Minnesota")) %>%
-  mutate(land = if_else(is.na(land), 0L, land),
-         offshore = if_else(is.na(offshore), 0L, offshore)) %>%
+  mutate(location = str_replace(location, "^N\\.", "North"),
+         location = str_replace(location, "^S\\.", "South"),
+         location = str_replace(location, "^W\\.", "West"),
+         location = str_replace(location, "^Mass\\.", "Massachusetts"),
+         location = str_replace(location, "^Wash\\.", "Washington"),
+         location = str_replace(location, "Is\\.", "Island"),
+         location = str_replace(location, "^Penn\\.", "Pennsylvania"),
+         location = str_replace(location, "^D\\.C\\.", "District of Columbia"),
+         location = str_replace(location, "^North Hamp\\.", "New Hampshire"),
+         location = str_replace(location, "^North Jersey", "New Jersey"),
+         location = str_replace(location, "^North Mexico", "New Mexico"),
+         location = str_replace(location, "^North York", "New York"),
+         location = str_replace(location, "^Tennesee", "Tennessee"),
+         location = str_replace(location, "^West Virgina", "West Virginia"),
+         location = str_replace(location, "^Minn\\.", "Minnesota")) %>%
+  mutate_at(vars(land, offshore), replace_na, replace = 0L) %>%
   group_by(location) %>%
   summarize_at(vars(total), sum, na.rm = TRUE) %>%
   filter(total > 0) %>%

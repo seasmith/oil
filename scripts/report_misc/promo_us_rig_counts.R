@@ -1,5 +1,96 @@
-load("~/R/misc/oil/US/rig_counts/rc_master.RData")
-load("~/R/misc/oil/US/rig_counts/rc_basin.RData")
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(magick)
+library(scales)
+library(cowplot)
+
+load("~/R/oil/data/rig_counts/rc_master.RData")
+load("~/R/oil/data/rig_counts/rc_basin.RData")
+source("~/R/oil/scripts/tidy/rig-counts/summarize-rc_basin.R")
+
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+
+theme_gray20 <- function(text_size = 16,
+                         bg_color = "gray20",
+                         title_color   = "gray80", text_color = "gray90",
+                         grid_color    = "gray70",
+                         caption_color = "gray50") {
+ 
+ theme(text = element_text("Open Sans", size = text_size, color = text_color),
+       panel.grid.major   = element_line(color = grid_color),
+       panel.grid.major.y = element_line(linetype = "dotted"),
+       axis.text  = element_text(color = text_color),
+       axis.title = element_blank(),
+       plot.title = element_text(color = title_color),
+       plot.subtitle = element_text(color = title_color),
+       plot.caption  = element_text(colour = caption_color, size = 10),
+       plot.background = element_rect(fill = bg_color,
+                                      color = bg_color))
+ 
+}
+
+bg_color <- "gray20"
+
+# Creates title-like text at the top of an image
+set_top_text <- function(i, text, height = 125, size = 100, font = "Arial", color = "black", location = "0+0") {
+ i %>%
+  image_join(
+   image_blank(image_info(.)$width, height = height, color = bg_color) %>%
+    image_annotate(text = text, font = font, color = color, size = size, location = location)
+   , .
+  ) %>%
+  image_append(stack = TRUE)
+}
+
+set_bottom_text <- function(i, text, height = 125, size = 100, location = "0+0", font = "Arial", color = "black") {
+ i %>%
+  image_join(
+   .,
+   image_blank(image_info(.)$width, height = height, color = bg_color) %>%
+    image_annotate(text = text, font = font, color = color, size = size,
+                   location = location)
+  ) %>%
+  image_append(stack = TRUE)
+}
+
+# Pads an image with whitespace on the right-hand side
+set_padding_r <- function(i, size = 100, color = bg_color) {
+ i %>%
+  image_join(
+   image_blank(size, image_info(.)$height, color = bg_color) 
+  ) %>%
+  image_append(stack = FALSE)
+}
+
+# Pads an image with whitespace on the left-hand side
+set_padding_b <- function(i, size = 100, color = bg_color) {
+ i %>%
+  image_join(
+   image_blank(image_info(.)$width, size, color = bg_color) 
+  ) %>%
+  image_append(stack = TRUE)
+}
+
+# Bind (append) images horizontally -- for use with purrr::reduce()
+bind_images_h <- function(x, y, p = 100) {
+ x %>% 
+  set_padding_r(size = p) %>%
+  image_join(y) %>%
+  image_append(stack = FALSE)
+}
+
+# Bind (append) images vertically -- for use with purrr::reduce()
+bind_images_v <- function(x, y, p = 100) {
+ x %>% 
+  set_padding_b(size = p) %>%
+  image_join(y) %>%
+  image_append(stack = TRUE)
+}
+
+
 purp00 <- "#bdadb8"
 purp0 <- "#a6819c"
 purp1 <- "#814b72"
@@ -67,13 +158,16 @@ rcm %>%
        caption = paste0("Source: Baker Hughes"),
        x = NULL, y = NULL) +
   guides(fill = FALSE) +
-  theme(plot.title = element_text(hjust = -0.85),
-        plot.subtitle = element_text(size = 12, hjust = 0.96, margin = margin(7, 0, 5, 0, "pt")),
-        plot.caption = element_text(size = 10, color = "gray50", margin = margin(5, 0, 0, 0, "pt")),
-        axis.title.x = element_text(size = 14, hjust = 0.3),
-        axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(size = 11),
-        panel.grid.major.y = element_blank())
+  # theme(plot.title = element_text(hjust = -0.85),
+  #       plot.subtitle = element_text(size = 12, hjust = 0.96, margin = margin(7, 0, 5, 0, "pt")),
+  #       plot.caption = element_text(size = 10, color = "gray50", margin = margin(5, 0, 0, 0, "pt")),
+  #       axis.title.x = element_text(size = 14, hjust = 0.3),
+  #       axis.text.y = element_text(size = 11),
+  #       axis.text.x = element_text(size = 11),
+  #       panel.grid.major.y = element_blank())
+ blg::blg_theme_default() +
+ theme(panel.grid.major.y = element_blank(),
+       plot.caption = element_text(color = "gray50"))
 
 
 
@@ -81,11 +175,12 @@ rcm %>%
 # RASTER CRASH ------------------------------------------------------------
 #   -----------------------------------------------------------------------
 
-library(magick)
+bg_color <- "gray20"
 
 # fnt <- "Bitstream Vera Sans"
 fnt <- "Open Sans"
 clr <- "white"
+
 basin_order <- rc_basin %>%
   filter(key == "Total") %>%
   filter(year(Date) == 2017) %>%
@@ -100,133 +195,82 @@ rc_basin <- rc_basin %>%
   mutate(basin = factor(basin, levels = rev(basin_order), ordered = TRUE)) %>%
   arrange(Date)
 
-crash <- rc_basin %>%
+rc_basin_index <- rc_basin %>%
+ filter(key == "Total") %>%
+ group_by(basin) %>%
+ mutate(index = scale(value)) %>%
+ ungroup() %>%
+ mutate(basin = if_else(basin == "Others", "Other Basins", as.character(basin))) %>%
+ mutate(basin = factor(basin, levels = rev(basin_order), ordered = TRUE))
+
+basin_order_index <- rc_basin_index %>%
+ filter(key == "Total") %>%
+ filter(Date == max(Date)) %>%
+ mutate(basin = if_else(basin == "Others", "Other Basins", as.character(basin))) %>%
+ arrange(desc(index)) %>%
+ pull(basin)
+
+rc_basin_index <- rc_basin_index %>%
+ mutate(basin = if_else(basin == "Others", "Other Basins", as.character(basin))) %>%
+ mutate(basin = factor(basin, levels = rev(basin_order_index), ordered = TRUE)) %>%
+ arrange(Date)
+
+
+(crash <- rc_basin_index %>%
   filter(key == "Total") %>%
+  # mutate()
   ggplot() +
-  geom_raster(aes(factor(Date, ordered = TRUE, exclude = NA), basin, fill = value), interpolate = TRUE) +
-  scale_fill_viridis_c() +
+  geom_raster(aes(factor(Date, ordered = TRUE, exclude = NA), basin, fill = index), interpolate = TRUE) +
+  scale_fill_viridis_c("Rig Count (Index)") +
   scale_x_discrete(expand = expand_scale()) +
   scale_y_discrete(expand = expand_scale()) +
-  guides(fill = guide_colorbar(title = "Rig Count  ",
-                               title.position = "left",
+  guides(fill = guide_colorbar(title = "Rig Count  (Index)",
+                               title.position = "top",
                                barwidth = 19.2, barheight = 1,
                                raster = FALSE, ticks = FALSE)) +
-  # theme_g10() +
-  theme_drk(fam = fnt) +
+  theme_gray20() +
   theme(axis.text.y = element_text(size = 11),
         axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(color = "white"),
+        axis.line = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_blank(),
         legend.direction = "horizontal",
-        legend.position = c(0.5, 1.08),
-        plot.margin = unit(c(3, 0.2, 0, 0), "lines"))
+        legend.position = c(-0.33, 1.16),
+        plot.margin = unit(c(4.4, 0.2, 0, 0), "lines")))
 
-ggsave("crash.png", crash, width = 600 / 100, height = 400 / 100, dpi = 100)
+ggsave("crash.png", crash, width = 6, height = 4, dpi = 600)
 
 
-oc <- image_read("crash.png")
+(oc <- image_read("crash.png") %>% image_trim())
 
 oc_info <- image_info(oc)
 
 oc %>%
-  image_join(
-    image_blank(oc_info$width, 80, "gray10"),
-    .,
-    image_blank(oc_info$width, 45, "gray10")
-  ) %>%
-  image_append(stack = TRUE) %>%
-  image_annotate(format(min(rc_basin$Date), "%b %d, %Y"),
-                 location = geometry_point(102, 483),
-                 color = clr, font = fnt, size = 14) %>%
-  image_join(
-    image_blank(43, image_info(.)$height, "gray10")
-  ) %>%
-  image_append() %>%
-  image_annotate(format(max(rc_basin$Date), "%b %d, %Y"),
-                 location = geometry_point(560, 483),
-                 color = clr, font = fnt, size = 14)
-
-
-crash2 <- rc_basin %>%
-  filter(key == "Total") %>%
-  ggplot() +
-  geom_raster(aes(factor(Date, ordered = TRUE, exclude = NA), basin, fill = value), interpolate = TRUE) +
-  scale_fill_viridis_c() +
-  scale_x_discrete(expand = expand_scale()) +
-  scale_y_discrete(expand = expand_scale()) +
-  guides(fill = guide_colorbar(title = "",
-                               title.position = "top",
-                               barwidth = 1, barheight = 19,
-                               raster = FALSE, ticks = FALSE)) +
-  # theme_g10() +
-  theme_drk(fam = fnt) +
-  theme(axis.text.y = element_text(size = 11),
-        axis.text.x = element_blank(),
-        panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_blank(),
-        legend.direction = "vertical",
-        plot.margin = unit(c(0, 0, 0, 0), "lines"))
-
-ggsave("crash2.png", crash2, width = 600 / 100, height = 400 / 100, dpi = 100)
-
-
-oc2 <- image_read("crash2.png")
-
-oc2 <- oc2 %>%
-  image_join(
-    image_blank(oc_info$width, 100, "gray10"),
-    .,
-    image_blank(oc_info$width, 45, "gray10")
-  ) %>%
-  image_append(stack = TRUE)
-
-(oc2 <- oc2 %>%
-    image_annotate("The Oil Price Crash As Told By Rig Count",
-                   location = geometry_point(3,-3),
-                   color = clr, font = fnt, size = 32) %>%
-    image_annotate("Rig counts of various major US basins clearly show the moment",
-                   location = geometry_point(3, 38),
-                   color = clr, font = fnt, size = 18) %>%
-    image_annotate("companies reacted to the oil price crash in 2014.",
-                   location = geometry_point(3, 60),
-                   color = clr, font = fnt, size = 18))
-
-(oc2 <- oc2 %>%
-    image_annotate(format(min(rc_basin$Date), "%b %Y"),
-                   location = geometry_point(102, 503),
-                   color = clr, font = fnt, size = 14) %>%
-    image_annotate(format(max(rc_basin$Date), "%b %Y"),
-                   location = geometry_point(483, 503),
-                   color = clr, font = fnt, size = 14) %>%
-    image_annotate("Dec 2014",
-                   location = geometry_point(325, 503),
-                   color = clr, font = fnt, size = 14) %>%
-    image_annotate("Rig Count",
-                   location = geometry_point(530, 95),
-                   color = clr, font = fnt, size = 14))
-
-(oc2 <- oc2 %>%
-    image_annotate("Luke Smith (@lksmth)",
-                   location = geometry_point(453, 525),
-                   color = "springgreen", font = fnt, size = 14) %>%
-    image_annotate("Source: Baker Hughes",
-                   location = geometry_point(3, 527),
-                   color = "gray70", font = fnt, size = 12))
-
-image_write(oc2, "oil_price_crash.png")
+ image_join(
+  image_blank(oc_info$width, 80, bg_color)
+ ) %>%
+ image_append(stack = TRUE) %>%
+ image_annotate(format(min(rc_basin$Date), "%b %d, %Y"),
+                location = geometry_point(830, 2365),
+                color = clr, font = fnt, size = 90) %>%
+ image_join(
+  image_blank(43, image_info(.)$height, bg_color)
+ ) %>%
+ image_append() %>%
+ image_annotate(format(max(rc_basin$Date), "%b %d, %Y"),
+                location = geometry_point(3050, 2365),
+                color = clr, font = fnt, size = 90) %>%
+ set_top_text("Crash And Recovery In US Oil And Gas", color = "white",
+              size = 200, height = 225, location = "-5+0") %>%
+ set_bottom_text("@lksmth", color = "springgreen", size = 70, height = 100, location = "-5+10") %>%
+ image_annotate("Source: Baker Hughes", color = "white", location = geometry_point(300, 2715), size = 70)
 
 
 
 # INDEXED/SCALED ----------------------------------------------------------
-rc_basin2 <- rc_basin %>%
-  filter(key == "Total") %>%
-  group_by(basin) %>%
-  mutate(index = scale(value)) %>%
-  ungroup() %>%
-  mutate(basin = if_else(basin == "Others", "Other Basins", as.character(basin))) %>%
-  mutate(basin = factor(basin, levels = rev(basin_order), ordered = TRUE))
-
-rc_basin_margin <- rc_basin2 %>%
+rc_basin_margin <- rc_basin_index %>%
   group_by(basin) %>%
   summarize(value = mean(value, na.rm = TRUE))
 
@@ -234,7 +278,7 @@ rc_basin_summ <- rc_basin %>%
   group_by(Date) %>%
   summarize(value = sum(value, na.rm = TRUE))
 
-crash3 <- rc_basin2 %>%
+crash3 <- rc_basin_index %>%
   ggplot() +
   geom_raster(aes(factor(Date), basin, fill = index), interpolate = TRUE) +
   scale_fill_viridis_c() +
@@ -244,23 +288,28 @@ crash3 <- rc_basin2 %>%
                                title.position = "top",
                                barwidth =1, barheight = 19,
                                raster = FALSE, ticks = FALSE)) +
-  theme_drk() +
+  theme_gray20() +
   theme(panel.grid.major = element_blank(),
         axis.text.y = element_text(size = 11),
         axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(color = "white"),
+        axis.line = element_blank(),
         legend.direction = "vertical",
         plot.margin = unit(c(0, 0, 0, 0), "lines"))
 
 ggsave("crash3.png", crash3, width = 600 / 100, height = 400 / 100, dpi = 100)
 
 
-oc3 <- image_read("crash3.png")
+oc3 <- image_read("crash3.png") %>% image_trim()
+
+oc3_info <- oc3 %>% image_info()
 
 oc3 <- oc3 %>%
   image_join(
-    image_blank(oc_info$width, 100, "gray10"),
+    image_blank(oc3_info$width, 100, bg_color),
     .,
-    image_blank(oc_info$width, 45, "gray10")
+    image_blank(oc3_info$width, 45, bg_color)
   ) %>%
   image_append(stack = TRUE)
 
@@ -357,9 +406,9 @@ oil_price <- oil_price %>%
 rcb %>%
   bind_rows(oil_price) %>%
   ggplot() +
-  geom_raster(aes(factor(Date), basin, fill = index)) +
+  geom_raster(aes(factor(Date), key, fill = index)) +
   scale_fill_viridis_c() +
-  theme_drk()
+  theme_gray20()
 
 
 rc_raster <- rct %>%
@@ -372,7 +421,7 @@ rc_raster <- rct %>%
                                barwidth = 1, barheight = 7,
                                raster = FALSE, ticks = FALSE,
                                label.position = "left")) +
-  theme_drk() +
+  theme_gray20() +
   theme(axis.text.x = element_blank(),
         panel.grid.major = element_blank(),
         axis.text.y = element_blank(),
@@ -391,7 +440,7 @@ rc_line <- rct %>%
   scale_x_date(expand = expand_scale()) +
   scale_y_continuous(expand = expand_scale()) +
   guides(color = FALSE) +
-  theme_drk() +
+  theme_gray20() +
   theme(axis.text.x = element_blank(),
         panel.grid.major = element_blank())
 

@@ -25,12 +25,9 @@ library(stringi)
 # ---- Library_ploting_Setup
 library(grid)
 library(gridExtra)
-library(ggExtra)
-library(GGally)
 library(ggalt)
 library(scales)
-library(extrafont)
-loadfonts("win")
+library(extrafont); loadfonts("win", quiet = TRUE)
 
 # ---- Library_Web_Setup
 library(rvest)
@@ -89,13 +86,13 @@ theme_set(blg_theme_default())
 ```
 
 ```{r load_data}
-ref1 <- "~/R/misc/oil/price"
-ref2 <- "~/R/misc/oil/US/rig_counts"
-ref3 <- "~/R/misc/oil/US/production"
-ref4 <- "~/R/misc/maps"
+ref1 <- "~/R/oil/data/eia/spot-prices"
+ref2 <- "~/R/oil/data/rig_counts"
+ref3 <- "~/R/oil/data/prod"
+ref4 <- "~/R/oil/data/maps/us"
 
 # Oil price
-load(file.path(ref1, "oil_price.RData"))
+oil_price <- read_csv(file.path(ref1, "cushing_wti_oil.csv"))
 
 # Rig count - basins
 load(file.path(ref2, "rc_basin.RData"))
@@ -107,13 +104,13 @@ load(file.path(ref2, "rc_master.RData"))
 load(file.path(ref2, "rc_og.RData"))
 
 # State production
-load(file.path(ref3, "state_prod.RData"))
+load(file.path(ref3, "prod_api.RData"))
 
 # US counties map (Albers projection)
-load(file.path(ref4, "counties_2014_adjusted.RData"))
+load(file.path(ref4, "counties_2014_adjusted_simp.RData"))
 
 # US states map (Albers projection)
-load("~/R/misc/maps/states_map_adjusted.RData")
+load(file.path(ref4, "states_map_adjusted_simp.RData"))
 ```
 
 ```{r tidy_og_split, include=FALSE}
@@ -133,16 +130,16 @@ rc_master <- rc_master %>%
            County = str_replace(County, "DE WITT", "DEWITT"))
 ```
 
-```{r tidy_counties_2014_adjusted}
-counties_2014_adjusted <- counties_2014_adjusted %>%
+```{r tidy_counties_2014_adjusted_simp}
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
   filter(!(STATE == "PR" | STATE == "VI")) %>%
   filter(!is.na(NAME)) %>%
   left_join(state_lookup, c("STATE" = "state_abb")) %>%
   mutate_at(vars(state_name, NAME), toupper)
 ```
 
-```{r tidy_states_map_adjusted}
-us_map <- states_map_adjusted %>%
+```{r tidy_states_map_adjusted_simp}
+us_map <- states_map_adjusted_simp %>%
   filter(!(STATE_ABBR == "PR" | STATE_ABBR == "VI") & TYPE == "Land") %>%
   select(-(STATE_FIPS:PRIM_MILES))
 ```
@@ -189,9 +186,9 @@ rc_og_m <- rc_og %>%
 
 ```{r join}
 ## Join:
-#  state_prod
+#  prod_api
 #  rc_og_m
-stp <- state_prod %>%
+stp <- prod_api$crude_oil_production %>%
   mutate(date = zoo::as.yearmon(date)) %>%
   left_join(rc_og_m, c("date" = "Date"))
 
@@ -205,7 +202,7 @@ stp <- stp %>%
 ```{r join_plots}
 stp %>%
   filter(grepl("Texas|North Dakota|Colorado|Oklahoma|California", location)) %>%
-  ggplot(aes(production, Oil)) +
+  ggplot(aes(prod, Oil)) +
   geom_point() +
   geom_smooth(method = "lm") +
   facet_wrap(~location, scales = "free")
@@ -215,8 +212,8 @@ stp %>%
   filter(date >= (max(date) - 10)) %>%
   group_by(location) %>%
   arrange(date) %>%
-  mutate(diff = production - production[1]) %>%
-  select(location, date, production, diff) %>%
+  mutate(diff = prod - prod[1]) %>%
+  select(location, date, prod, diff) %>%
   ungroup() %>%
   ggplot(aes(date, diff, group = location)) +
   geom_line()
@@ -226,8 +223,8 @@ us_only <- stp %>%
   filter(grepl("U\\.S\\.", location)) %>%
   filter(date >= (max(date) - 10)) %>%
   arrange(date) %>%
-  select(location, date, production) %>%
-  spread(location, production) %>%
+  select(location, date, prod) %>%
+  spread(location, prod) %>%
   mutate(diff_US = U.S. - U.S.[1])
 
 stp %>%
@@ -237,8 +234,8 @@ stp %>%
   select(-(Oil:price)) %>%
   group_by(location) %>%
   arrange(date) %>%
-  mutate(state_percent = production / U.S.,
-         diff = production - production[1]) %>%
+  mutate(state_percent = prod / U.S.,
+         diff = prod - prod[1]) %>%
   ungroup() %>%
   ggplot(aes(date, state_percent, group = location)) +
   geom_line()
@@ -250,8 +247,8 @@ stp %>%
   select(-(Oil:price)) %>%
   group_by(location) %>%
   arrange(date) %>%
-  mutate(state_percent = production / U.S.,
-         diff = production - production[1],
+  mutate(state_percent = prod / U.S.,
+         diff = prod - prod[1],
          diff_percent = diff / diff_US) %>%
   ungroup() %>%
   select(location, date, state_percent, diff_percent) %>%
@@ -268,8 +265,8 @@ stp %>%
   select(-(Oil:price)) %>%
   group_by(location) %>%
   arrange(date) %>%
-  mutate(state_percent = production / U.S.,
-         diff = production - production[1],
+  mutate(state_percent = prod / U.S.,
+         diff = prod - prod[1],
          diff_percent = diff / diff_US) %>%
   ungroup() %>%
   select(location, date, state_percent, diff_percent) %>%
@@ -292,15 +289,15 @@ us_prod_map <- us_map %>%
 
 us_prod_map %>%
   ggplot() +
-  geom_sf(aes(fill = production))
+  geom_sf(aes(fill = prod))
 
 
 
 us_prod_map %>%
   filter(date == max(date) & location != "U.S.") %>%
-  mutate(prod_cut = cut(production, breaks = c(0, 10, 60, 180, 800, 2000, 4500), right = FALSE),
+  mutate(prod_cut = cut(prod, breaks = c(0, 10, 60, 180, 800, 2000, 4500), right = FALSE),
          prod_cat = as.integer(prod_cut)) %>%
-  select(location:production, prod_cat) %>%
+  select(location:prod, prod_cat) %>%
   ggplot() +
   geom_sf(data = us_map, fill = "black") +
   geom_sf(aes(fill = factor(prod_cat))) +
@@ -323,11 +320,11 @@ img <- map_chr(it_date, ~{
       us_prod_map,
       date == .x & location != "U.S."
     ),
-    location:production)
+    location:prod)
   
   gg <- ggplot(dat) +
     geom_sf(data = us_map) +
-    geom_sf(aes(fill = production)) +
+    geom_sf(aes(fill = prod)) +
     labs(title = paste0("US State Oil Production"),
          subtitle = paste0("Date: ", .x))
   

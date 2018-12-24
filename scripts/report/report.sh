@@ -2,7 +2,7 @@
 
 # Download webpage and parse it
 curl "http://phx.corporate-ir.net/phoenix.zhtml?c=79687&p=irol-reportsother" > page.html
-Rscript parse_html.R
+Rscript ../import/rig-counts/read-link-hash.R
 
 # Read `last-modified` fields (parsed by parse_html.R)
 pivot_link=$(cat pivot_link.txt)
@@ -29,7 +29,7 @@ do
   sleep 60
   
   curl "http://phx.corporate-ir.net/phoenix.zhtml?c=79687&p=irol-reportsother" > page.html
-  Rscript parse_html.R
+  Rscript ../import/rig-counts/read-link-hash.R
 
   pivot_link=$(cat pivot_link.txt)
   count_link=$(cat count_link.txt)
@@ -51,10 +51,10 @@ curl -o pivot_table.xlsb "$pivot_link"
 curl -o count.xlsb "$count_link" 
 
 # Convert from .xlsb to .csv
-cscript ConvertToCSV.vbs
+cscript ../tidy/rig-counts/ConvertToCSV.vbs
 
 # Extract data
-Rscript get_rig_count_data.R
+Rscript ../tidy/rig-counts/rig-counts.R
 
 # RMarkdown cannot find pandoc unless it is added to this session's PATH
 PATH=${PATH}:~C:/"Program Files"/RStudio/bin/pandoc/pandoc.exe

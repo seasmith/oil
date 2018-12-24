@@ -25,11 +25,9 @@ library(stringi)
 # ---- Library_ploting_Setup
 library(grid)
 library(gridExtra)
-library(ggExtra)
-library(GGally)
 library(ggalt)
 library(scales)
-library(extrafont)
+library(extrafont); loadfonts("win", quiet = TRUE)
 
 # ---- Library_Web_Setup
 library(rvest)
@@ -76,8 +74,6 @@ options(digits = 2)
 ```
 
 ```{r r_misc_std, include=FALSE}
-loadfonts("win")
-
 my_blue   <- "#0059B3"
 my_orange <- "#B35A00"
 my_pink   <- "#B30059"
@@ -202,37 +198,37 @@ map_chr(unique(t_tween$.frame), ~{
 td <- tempdir()
 
 map_chr(unique(summ_animate$Date), ~{
-    d <- filter(summ_animate, Date == .x)
-    gg <- ggplot(d) +
-        geom_line(aes(Date, value, color = key), size = 0.7) +
-        geom_text(aes(x, y, group = key, color = key, label = label),
-                  summ_text) +
-        scale_x_date(limits = c(as.Date("2011-01-01"), as.Date("2018-04-01"))) +
-        scale_y_continuous(limits = c(0, 2100),
-                           labels = comma) +
-        scale_color_manual(values = c(
-            # "#004A94",
-            "#01665E",
-            # "#004A94",
-            "#8C510A",
-            "black")) +
-        guides(color = FALSE) +
-        labs(title = "Rig count by well type",
-             y = "Rig count") +
-        blg_theme_default(12)
-    
-    fil <- file.path(td, sprintf("%04d.png", as.integer(.x)))
-    
-    ggsave(fil, gg, , units = "in", width=6, height=3.5)
-    
-    fil
-    
+ d <- filter(summ_animate, Date == .x)
+ gg <- ggplot(d) +
+  geom_line(aes(Date, value, color = key), size = 0.7) +
+  geom_text(aes(x, y, group = key, color = key, label = label),
+            summ_text) +
+  scale_x_date(limits = c(as.Date("2011-01-01"), as.Date("2018-04-01"))) +
+  scale_y_continuous(limits = c(0, 2100),
+                     labels = comma) +
+  scale_color_manual(values = c(
+   # "#004A94",
+   "#01665E",
+   # "#004A94",
+   "#8C510A",
+   "black")) +
+  guides(color = FALSE) +
+  labs(title = "Rig count by well type",
+       y = "Rig count") +
+  blg_theme_default(12)
+ 
+ fil <- file.path(td, sprintf("%04d.png", as.integer(.x)))
+ 
+ ggsave(fil, gg, , units = "in", width=6, height=3.5)
+ 
+ fil
+ 
 }) %>%
-    map(image_read) %>%
-    map(image_scale, geometry = "675x") %>%
-    image_join() %>%
-    image_animate() %>%
-    image_write("rig_count_animate.gif")
+ map(image_read) %>%
+ map(image_scale, geometry = "675x") %>%
+ image_join() %>%
+ image_animate() %>%
+ image_write("rig_count_animate.gif")
 ```
 
 

@@ -1,0 +1,111 @@
+```{r setup-knitr, include=FALSE}
+library(knitr)
+
+# ____ knitr_Opts_Setup
+opts_chunk$set(echo = FALSE)
+opts_chunk$set(fig.height = 7)
+opts_chunk$set(message = FALSE)
+opts_chunk$set(warning = FALSE)
+opts_chunk$set(cache.path = "cache/index/")
+
+
+# ____ knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot    <- knit_hooks$get("plot")
+
+
+# ____ Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(str_to_title(x)) else
+      return(x)
+})
+```
+
+```{r load_extra_packages}
+library(ggrepel)
+library(magick)
+library(lemon)
+library(ggalt)
+library(dplyr)
+library(stringr)
+library(sf)
+library(readr)
+library(purrr)
+
+library(grid)
+library(scales)
+
+library(extrafont); loadfonts("win", quiet = TRUE)
+```
+
+```{r set-functions}
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+```
+
+```{r load-data}
+load(file.path("~/R/misc/maps", "counties_2014_adjusted_simp.RData"))
+load("~/R/oil/data/rig_counts/rc_basin.RData")
+load("~/R/oil/data/rig_counts/rc_master.RData")
+load("~/R/oil/data/rig_counts/rc_og.RData")
+oil_price <- read_csv("~/R/oil/data/eia/spot-prices/cushing_wti_oil.csv")
+state_lookup <- tibble(state_abb = state.abb, state_name = state.name)
+
+# Remove uneeded polygons
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+ filter(!(STATE == "PR" | STATE == "VI")) %>%
+ filter(!is.na(NAME)) %>%
+ left_join(state_lookup, c("STATE" = "state_abb")) %>%
+ mutate_at(vars(state_name, NAME), toupper)
+
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+ mutate(NAME = str_replace(NAME, "^SAINT", "ST\\."),
+        NAME = str_replace(NAME, "^DEWITT", "DE WITT"))
+```
+
+```{r new_theme}
+pad_percent <- function (x) str_pad(percent(x), 4)
+
+theme_g10 <- function () {
+ theme(plot.background = element_rect(color = "gray10", fill = "gray10"),
+       panel.background = element_rect(fill = "gray10"),
+       text = element_text(color = "white", family = "Open Sans"),
+       axis.title = element_blank(),
+       axis.text = element_text(color = "gray90"),
+       axis.line = element_line(color = "gray50"),
+       panel.grid = element_blank())
+}
+
+theme_g10v2 <- function () {
+ theme(plot.background = element_rect(fill = "gray10", color = "gray10"),
+       panel.background = element_rect(fill = "gray10"),
+       text = element_text(color = "white", family = "Open Sans"),
+       axis.title = element_blank(),
+       axis.line = element_blank(),
+       panel.grid.major.y = element_line(color = "gray30", linetype = "dotted"),
+       panel.grid.major.x = element_line(color = "gray30", linetype = "dotted"))
+}
+```
+
+
+<!--  -->
+<!-- Well Depth -->
+<!--  -->
+
+```{r well_depth}
+wd_levels <- rev(c(NA, "<5k", "5k-10k", "10k-15k", ">15k"))
+
+rc_master %>%
+  count(Year, WellDepth) %>%
+  group_by(Year) %>%
+  mutate(n_per = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(WellDepth = factor(WellDepth, levels = wd_levels, ordered = TRUE)) %>%
+  ggplot() +
+  geom_col(aes(Year, n_per, fill = WellDepth), position = "fill", width = 1) +
+  scale_x_continuous(NULL, expand = expand_scale()) +
+  scale_y_continuous(NULL, expand = expand_scale()) +
+  scale_fill_viridis_d(na.value = "gray30") +
+  theme_g10()
+```

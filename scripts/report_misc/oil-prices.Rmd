@@ -1,0 +1,73 @@
+---
+title  : "Oil Prices"
+author : "Luke Smith"
+date   : "`r Sys.Date()`"
+tags   : [r, oil, gas, oil and gas]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "Oil Prices"
+  description : ""
+  image       : ""
+og :
+  image : ""
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load-dependencies}
+library(tidyverse)
+```
+
+```{r function-setup}
+
+```
+
+```{r load-data, message=FALSE}
+data_dir <- "~/R/oil/data/eia/"
+
+sub_dirs <- list.files(data_dir, full.names = TRUE)
+
+data <- sub_dirs %>%
+ map(list.files, full.names = TRUE, pattern = "\\.csv$") %>%
+ map(~keep(.x, str_detect(.x, "_oil"))) %>%
+ map(~{
+  map(.x, read_csv)
+  }) %>%
+ set_names(basename(sub_dirs))
+```
+
+```{r start-graphs}
+# How do the API of imported and domestically sold oils differ?
+
+data$`costs-of-imported-oil-by-api-gravity` %>%
+ bind_rows() %>%
+ filter(lubridate::year(date) >= 2015) %>%
+ ggplot(aes(date, price, color = name)) +
+ geom_line() +
+ theme(legend.position = "bottom")
+
+data$`dom-oil-first-prices-by-api-gravity` %>%
+ bind_rows() %>%
+ filter(lubridate::year(date) >= 2015) %>%
+ mutate(name = str_remove(name, "^.* with ")) %>%
+ ggplot(aes(date, price, color = name)) +
+ geom_line() +
+ theme(legend.position = "bottom")
+```
+
+# Cushing-Brent Price Difference
+```{r cushing-brent-price-diff}
+data$`spot-prices` %>%
+ bind_rows() %>%
+ select(date:name) %>%
+ filter(lubridate::year(date) >= 2010) %>%
+ mutate(name = case_when(str_detect(name, "Cushing") ~ "Cushing", TRUE ~ "Brent")) %>%
+ spread("name", "price") %>%
+ mutate(price_diff = Cushing - Brent) %>%
+ ggplot(aes(date, price_diff)) +
+ geom_line(size = 1.2) +
+ theme(legend.position = "bottom")
+```

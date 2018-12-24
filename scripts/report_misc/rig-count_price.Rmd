@@ -1,0 +1,317 @@
+```{r setup-knitr, include=FALSE}
+library(knitr)
+
+# ____ knitr_Opts_Setup
+opts_chunk$set(echo = FALSE)
+opts_chunk$set(fig.height = 7)
+opts_chunk$set(message = FALSE)
+opts_chunk$set(warning = FALSE)
+opts_chunk$set(cache.path = "cache/index/")
+
+
+# ____ knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot    <- knit_hooks$get("plot")
+
+
+# ____ Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(str_to_title(x)) else
+      return(x)
+})
+```
+
+```{r load_extra_packages}
+library(ggrepel)
+library(magick)
+library(lemon)
+library(ggalt)
+library(dplyr)
+library(stringr)
+library(sf)
+library(readr)
+library(purrr)
+library(cowplot)
+library(grid)
+library(scales)
+
+library(extrafont); loadfonts("win", quiet = TRUE)
+```
+
+```{r set-functions}
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+
+theme_gray20 <- function(text_size = 16,
+                       bg_color = "gray20",
+                       title_color   = "gray80", text_color = "gray90",
+                       grid_color    = "gray70",
+                       caption_color = "gray50") {
+  
+  theme(text = element_text("Open Sans", size = text_size, color = text_color),
+        panel.grid.major   = element_line(color = grid_color),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        axis.line = element_blank(),
+        axis.text  = element_text(color = text_color),
+        axis.title = element_blank(),
+        plot.title = element_text(color = title_color),
+        plot.subtitle = element_text(color = title_color),
+        plot.caption  = element_text(colour = caption_color, size = 10),
+        plot.background = element_rect(fill = bg_color,
+                                       color = bg_color))
+  
+  }
+```
+
+```{r load-data}
+load(file.path("~/R/misc/maps", "counties_2014_adjusted_simp.RData"))
+load("~/R/oil/data/rig_counts/rc_og.RData")
+oil_price <- read_csv("~/R/oil/data/eia/spot-prices/cushing_wti_oil.csv")
+state_lookup <- tibble(state_abb = state.abb, state_name = state.name)
+
+# Remove uneeded polygons
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+ filter(!(STATE == "PR" | STATE == "VI")) %>%
+ filter(!is.na(NAME)) %>%
+ left_join(state_lookup, c("STATE" = "state_abb")) %>%
+ mutate_at(vars(state_name, NAME), toupper)
+
+counties_2014_adjusted_simp <- counties_2014_adjusted_simp %>%
+ mutate(NAME = str_replace(NAME, "^SAINT", "ST\\."),
+        NAME = str_replace(NAME, "^DEWITT", "DE WITT"))
+```
+
+```{r new_theme}
+pad_percent <- function (x) str_pad(percent(x), 4)
+
+theme_g10 <- function () {
+ theme(plot.background = element_rect(color = "gray10", fill = "gray10"),
+       panel.background = element_rect(fill = "gray10"),
+       text = element_text(color = "white", family = "Open Sans"),
+       axis.title = element_blank(),
+       axis.text = element_text(color = "gray90"),
+       axis.line = element_line(color = "gray50"),
+       panel.grid = element_blank())
+}
+
+theme_g10v2 <- function () {
+ theme(plot.background = element_rect(fill = "gray10", color = "gray10"),
+       panel.background = element_rect(fill = "gray10"),
+       text = element_text(color = "white", family = "Open Sans"),
+       axis.title = element_blank(),
+       axis.line = element_blank(),
+       panel.grid.major.y = element_line(color = "gray30", linetype = "dotted"),
+       panel.grid.major.x = element_line(color = "gray30", linetype = "dotted"))
+}
+```
+
+
+```{r price_and_total_count}
+trc_price <- rc_og %>%
+  left_join(oil_price, by = c("Date" = "date")) %>%
+  filter(!is.na(price))
+
+trc_price %>%
+  ggplot() +
+  stat_density_2d(aes(Total, price, fill = ..density..), geom = "raster", contour = FALSE) +
+  geom_point(aes(Total, price), filter(trc_price, Date == max(Date)), color = "brown", size = 1.6) +
+  scale_fill_viridis_c() +
+  scale_x_continuous(expand = expand_scale()) +
+  scale_y_continuous(expand = expand_scale()) +
+  guides(fill = FALSE) +
+  theme_g10()
+```
+
+```{r margin-plots-build-ggplot2-margins}
+fnt <- "Open Sans"
+clr <- "white"
+
+
+oil_price2 <- oil_price %>%
+ group_by(week = lubridate::week(date),
+          year = lubridate::year(date)) %>%
+ summarize(mprice = mean(price, na.rm = TRUE)) %>%
+ ungroup()
+
+oil_price2 <- oil_price %>%
+ group_by(week = lubridate::week(date),
+          year = lubridate::year(date)) %>%
+ arrange(date) %>%
+ filter(row_number() == 1) %>%
+ ungroup() %>%
+ left_join(oil_price2, by = c("week", "year"))
+
+mins <- c(min(oil_price2$date), min(rc_og$Date))
+mn   <- sort(mins)[length(mins)]
+maxs <- c(max(oil_price2$date), max(rc_og$Date))
+mx   <- sort(maxs)[1L]
+
+oil_price2 <- oil_price2 %>%
+ filter(between(date, mn, mx))
+
+
+## Line ##
+op_line <- oil_price2 %>%
+ ggplot() +
+ geom_line(aes(date, mprice, color = mprice), size = 0.8) +
+ geom_text(aes(x, y + 5, label = y), tibble(x = as.Date("1989-07-01"), y = c(50, 100)),
+           color = "gray90", family = "Open Sans", size = 3) +
+ scale_color_viridis_c(option = "B", begin = 0, end = 1) +
+ scale_x_date(expand = expand_scale(),
+              minor_breaks = NULL) +
+ scale_y_continuous(expand = expand_scale(),
+                    minor_breaks = NULL) +
+ guides(color = guide_colorbar(title = "Dollars Per Barrel Of Oil",
+                               title.position = "top",
+                               raster = FALSE, ticks = FALSE,
+                               barwidth = 6, barheight = .9)) +
+ theme_gray20() +
+ theme(legend.position = c(0.215, 0.83),
+       legend.direction = "horizontal",
+       legend.text = element_text(size = 9),
+       legend.title = element_text(size = 9),
+       axis.text.y = element_blank(),
+       axis.text.x = element_text(color = "gray10"),
+       panel.grid.major.x = element_blank())
+
+op_ydens <- op_line %>%
+ axis_canvas("y", coord_flip = TRUE) +
+ geom_density(aes(mprice), oil_price2, stat = "bkde",
+              fill = viridisLite::inferno(10)[5L],
+              color = "#00000000",
+              alpha = 0.3) +
+ coord_flip()
+
+op_comb <- op_line %>%
+ insert_yaxis_grob(op_ydens)
+
+## Raster ##
+op_raster <- oil_price2 %>%
+ ggplot() +
+ geom_raster(aes(factor(date), "Oil Price", fill = mprice),
+             interpolate = TRUE) +
+ scale_fill_viridis_c(option = "B", begin = 0, end = 1) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_discrete(expand = expand_scale()) +
+ guides(fill = FALSE) +
+ theme_gray20() +
+ theme(panel.grid.major = element_blank(),
+       axis.text.x = element_blank(),
+       axis.text.y = element_blank(),
+       panel.grid.major.x = element_blank())
+
+op_comb2 <- op_comb %>%
+ insert_xaxis_grob(op_raster, position = "bottom")
+
+ggsave("~/R/oil/scripts/report_misc/imgs/op_raster_line3.png", op_comb2, width = 700 / 100, height = 250 / 100, dpi = 100)
+```
+
+```{r margin-plots-build-ggplot2-mains, include=FALSE}
+################################################################################
+# Toal oil and gas rig count                                                   #
+################################################################################
+
+rc_og <- rc_og %>%
+ mutate(og = Oil + Gas)
+
+rc_og <- rc_og %>%
+ filter(between(Date, mn, mx))
+
+## Line ##
+(rt_line <- rc_og %>%
+  ggplot() +
+  geom_line(aes(Date, og, color = og), size = 0.8) +
+  geom_text(aes(x, y + 60, label = comma(y)), tibble(x = as.Date("1989-02-01"), y = c(500, 1000, 1500)),
+            color = "gray90", family = "Open Sans", size = 3) +
+  scale_color_viridis_c(option = "D", breaks = pretty_breaks(2), labels = comma) +
+  scale_x_date(expand = expand_scale(),
+               minor_breaks = NULL) +
+  scale_y_continuous(expand = expand_scale(),
+                     minor_breaks = NULL,
+                     labels = comma) +
+  guides(color = guide_colorbar(title = "Total Oil And Gas Rig Count",
+                                title.position = "top",
+                                raster = FALSE, ticks = FALSE,
+                                barwidth = 6, barheight = 0.9)) +
+  theme_gray20(bg_color = "gray10") +
+  theme(legend.position = c(0.23, 0.835),
+        legend.direction = "horizontal",
+        legend.text = element_text(size = 9),
+        legend.title = element_text(size = 9),
+        axis.text.y = element_blank(),
+        panel.grid.major.x = element_blank()))
+
+rt_ydens <- rt_line %>%
+ axis_canvas("y", coord_flip = TRUE) +
+ geom_density(aes(og), rc_og, stat = "bkde",
+              fill = viridisLite::viridis(10)[5L],
+              color = "#00000000", alpha = 0.3) +
+ coord_flip()
+
+rt_comb <- rt_line %>%
+ insert_yaxis_grob(rt_ydens)
+
+## Raster ##
+(rt_raster <- rc_og %>%
+  ggplot() +
+  geom_raster(aes(factor(Date), "Rig Count", fill = og),
+              interpolate = TRUE) +
+  scale_fill_viridis_c(option = "D") +
+  scale_x_discrete(expand = expand_scale()) +
+  scale_y_discrete(expand = expand_scale()) +
+  guides(fill = FALSE) +
+  theme_gray20() +
+  theme(panel.grid.major = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major.x = element_blank()))
+
+rt_comb2 <- rt_comb %>%
+ insert_xaxis_grob(rt_raster)
+
+ggsave("~/R/oil/scripts/report_misc/imgs/rt_raster_line3.png", rt_comb2, width = 700 / 100, height = 250 / 100, dpi = 100)
+```
+
+```{r margin-plots-build-images-1, include=FALSE}
+i <- image_read("~/R/oil/scripts/report_misc/imgs/op_raster_line3.png")
+i_info <- image_info(i)
+
+j <- image_read("~/R/oil/scripts/report_misc/imgs/rt_raster_line3.png")
+j_info <- image_info(j)
+
+(
+ i_plot <- i %>%
+  image_join(
+   image_blank(i_info$width, 110, "gray10"),
+   .,
+   image_blank(i_info$width, 0, "gray10"),
+   j,
+   image_blank(i_info$width, 20, "gray10")
+  ) %>%
+  image_append(stack = TRUE)
+)
+```
+
+```{r margin-plots-build-images-2}
+(
+ i_plot <- i_plot %>%
+  image_annotate("Rig Count Lags As Oil Rises",
+                 location = geometry_point(3, -7),
+                 color = clr, font = fnt, size = 32) %>%
+  image_annotate("Oil prices have risen from $50 in October 2017 to $65",
+                 location = geometry_point(3, 36),
+                 color = clr, font = fnt, size = 19) %>%
+  image_annotate("in February 2018 - a 30% increase.",
+                 location = geometry_point(3, 61),
+                 color = clr, font = fnt, size = 19) %>%
+  image_annotate("Luke Smith (@lksmth)",
+                 location = geometry_point(565, 612),
+                 color = "springgreen", font = fnt, size = 13) %>%
+  image_annotate("Source: Baker Hughes",
+                 location = geometry_point(3, 614),
+                 color = "gray50", font = fnt, size = 12)
+)
+
+image_write(i_plot, "~/R/oil/scripts/report_misc/imgs/oil_price_rig_count2.png")
+```
