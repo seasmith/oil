@@ -1,0 +1,333 @@
+---
+title  : "World Oil (Including Condensate) Production"
+author : "Luke Smith"
+date   : "`r Sys.Date()`"
+tags   : [r, oil, gas, oil and gas]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "World Oil (Including Condensate) Production"
+  description : ""
+  image       : ""
+og :
+  image : ""
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r dependencies, include=FALSE}
+library(tidyverse)
+library(extrafont); loadfonts("win", quiet = TRUE)
+library(ggrepel)
+library(magick)
+library(lubridate)
+library(cowplot)
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+import <- TRUE
+tmp_dir <- tempdir()
+
+any_string <- function(x) paste0(x, collapse = "|")
+```
+
+```{r plot-setup}
+theme_default <- function(bg = bg_color, text_color = txt_color, text_size = b_size, line_color = dot_color) {
+ theme_minimal() +
+  theme(plot.background = element_rect(fill = bg, color = bg),
+        panel.grid.major = element_line(linetype = "dotted", color = line_color),
+        panel.grid.minor = element_blank(), 
+        text = element_text(family = "Lato", size = text_size, 
+                            color = text_color),
+        axis.text = element_text(family = "Lato", color = text_color),
+        complete = TRUE)
+}
+
+b_family <- "Lato"
+b_size <- 16
+l_size <- 0.8
+bg_color <- "white"
+txt_color <- "gray20"
+dot_color <- "gray60"
+dpi <- 300
+
+# How to save plots
+ggsave_4x7 <- partial(ggsave, width = 4, height = 7, dpi = dpi)
+ggsave_7x4 <- partial(ggsave, width = 7, height = 4, dpi = dpi)
+
+# Creates title-like text at the top of an image
+set_top_text <- function(i, text, height = 125, size = 100, font = "Arial", 
+                         color = "black", bg_color = "white", gravity = "northwest",
+                         location = "0+0") {
+  i %>%
+    image_join(
+      image_blank(image_info(.)$width, height = height, color = bg_color) %>%
+        image_annotate(text = text, font = font, color = color, size = size, location = location, gravity = gravity)
+      , .
+    ) %>%
+    image_append(stack = TRUE)
+}
+
+set_bottom_text <- function(i, text, height = 125, size = 100, font = "Arial",
+                            bg_color = "white", color = "black", gravity = "northwest", 
+                            location = "0+0") {
+  i %>%
+    image_join(
+      .,
+      image_blank(image_info(.)$width, height = height, color = bg_color) %>%
+        image_annotate(text = text, font = font, color = color, size = size,
+                       location = location, gravity = gravity)
+    ) %>%
+    image_append(stack = TRUE)
+}
+
+# Pads an image with whitespace on the left-hand side
+set_padding_l <- function(i, size = 100, color = color) {
+  i %>%
+    image_join(
+      image_blank(size, image_info(.)$height, color = color) 
+      , .
+    ) %>%
+    image_append(stack = FALSE)
+}
+
+# Pads an image with whitespace on the right-hand side
+set_padding_r <- function(i, size = 100, color = color) {
+  i %>%
+    image_join(
+      image_blank(size, image_info(.)$height, color = color) 
+    ) %>%
+    image_append(stack = FALSE)
+}
+
+# Pads an image with whitespace at the top
+set_padding_t <- function(i, size = 100, color = color) {
+  i %>%
+    image_join(
+      image_blank(image_info(.)$width, size, color = color)
+      , .
+    ) %>%
+    image_append(stack = TRUE)
+}
+
+# Pads an image with whitespace at the bottom
+set_padding_b <- function(i, size = 100, color = color) {
+  i %>%
+    image_join(
+      image_blank(image_info(.)$width, size, color = color) 
+    ) %>%
+    image_append(stack = TRUE)
+}
+
+# Bind (append) images horizontally -- for use with purrr::reduce()
+bind_images_h <- function(x, y, p = 100, bg_color = "white") {
+  x %>% 
+    set_padding_r(size = p, color = bg_color) %>%
+    image_join(y) %>%
+    image_append(stack = FALSE)
+}
+
+# Bind (append) images vertically -- for use with purrr::reduce()
+bind_images_v <- function(x, y, p = 100, bg_color = "white") {
+  x %>% 
+    set_padding_b(size = p, color = bg_color) %>%
+    image_join(y) %>%
+    image_append(stack = TRUE)
+}
+
+# Set function with partially set arguments
+stt <- partial(set_top_text, bg_color = "white", font = "Lato",
+               color = "black", location = geometry_point(5, 5))
+
+# Set function with partially set arguments
+sbt <- partial(set_bottom_text, bg_color = "white", font = "Lato",
+               color = "gray50")
+```
+
+```{r import-data, eval=FALSE}
+source("~/R/oil/scripts/import/production/00_check_world-oil-condensate-production.R", echo = FALSE, local = n <- new.env())
+
+if (n$date_updated) source("~/R/oil/scripts/import/production/01_import_world-oil-condensate-production.R", echo = FALSE, local = new.env())
+```
+
+
+```{r load-data}
+load("~/R/oil/data/prod/wocp.RData")
+```
+
+```{r diff-from-previous-month}
+main_table <- wocp %>%
+ filter(str_detect(country, "Russia|United States|Saudi Arabia") &
+         date >= max(date) - days_in_month(max(date))) %>%
+ group_by(country) %>%
+ arrange(date) %>%
+ mutate(diff = diff(prod)) %>%
+ ungroup() %>%
+ filter(date == max(date))
+
+main_table
+```
+
+```{r plot-data, eval=FALSE}
+top_three_labs <- wocp %>%
+ filter(grepl("United States|Saudi Arabia|Russia", country)) %>%
+ filter(date == max(date)) %>%
+ mutate(prod = prod / 1000) %>%
+ mutate(date = date + 60)
+
+p_top_three <- wocp %>%
+ filter(grepl("United States|Saudi Arabia|Russia", country)) %>%
+ mutate(prod = prod / 1000) %>%
+ ggplot(aes(date, prod, color = country)) +
+ geom_line() +
+ geom_text_repel(aes(label = country), data = top_three_labs, 
+                 hjust = 0, direction = "y", segment.colour = "#00000000",
+                 family = "Lato") +
+ scale_x_date(NULL, expand = expand_scale(),
+              breaks = as.Date(c("1995-01-01", "2000-01-01", "2005-01-01", "2010-01-01", "2015-01-01")),
+              labels = c(1995, 2000, 2005, 2010, 2015),
+              limits = c(min(wocp$date), max(wocp$date) + 2700)) +
+ scale_y_continuous(NULL, labels = scales::comma) +
+ scale_color_manual(values = c("firebrick", "darkgreen", "steelblue"), guide = FALSE) +
+ theme_default()
+
+ggsave(f_top_three <- "~/R/oil/imgs/misc/wocp_top_three.png", p_top_three,
+       width = 5, height = 5, dpi = 600)
+
+f_top_three %>%
+ image_read() %>%
+ stt("Production (Million Barrels Per Day)", height = 150, size = 115) %>%
+ stt("A new rivalry for the title of the #1 oil producer.", height = 275, size = 135) %>%
+ stt("The Big Three", height = 200, size = 165) %>%
+ sbt("Source: US Energy Information Administration", height = 130, size = 90, gravity = "northeast", location = geometry_point(30, 0)) %>%
+ image_resize("1000x")
+```
+
+
+```{r combined}
+wocp_summary <- wocp %>%
+ mutate(country = if_else(str_detect(country, "United States|Saudi Arabia|Russia"), country, "Others")) %>%
+ mutate(prod = prod / 1000) %>%
+ group_by(country, date) %>%
+ summarize_all(sum, na.rm = TRUE) %>%
+ ungroup() 
+
+wocp_summary <- wocp_summary %>%
+ filter(str_detect(country, "United States|Saudi Arabia|Russia")) %>%
+ group_by(date) %>%
+ summarize(prod = sum(prod, na.rm = TRUE)) %>%
+ add_column(country = "Big 3") %>%
+ bind_rows(wocp_summary)
+
+wocp_summary <- wocp_summary %>%
+ filter(str_detect(country, "Big 3|Others")) %>%
+ group_by(date) %>%
+ summarize(prod = sum(prod, na.rm = TRUE)) %>%
+ add_column(country = "All") %>%
+ bind_rows(wocp_summary)
+
+# Big 3 (left-hand side plot)
+p1 <- wocp_summary %>%
+ filter(str_detect(country, "United States|Saudi Arabia|Russia")) %>%
+ ggplot(aes(date, prod, color = country)) +
+ geom_line(size = l_size) +
+ scale_x_date(NULL, expand = expand_scale(),
+              breaks = as.Date(c("1995-01-01", "2000-01-01", "2005-01-01", "2010-01-01", "2015-01-01")),
+              labels = c(1995, 2000, 2005, 2010, 2015)) +
+ scale_y_continuous(NULL, labels = scales::comma) +
+ scale_color_manual(NULL, values = c("firebrick", "forestgreen", "dodgerblue3")) +
+ guides(color = guide_legend(reverse = TRUE, override.aes = list(size = 2))) +
+ # facet_wrap(vars(country == "All"), scales = "free_y") +
+    theme_default(text_size = 22) +
+    theme(strip.text = element_blank(),
+          legend.position = c(0, 1),
+          legend.justification = c(0, 1))
+
+# Split (right-hand side aux plot)
+p2 <- p1  %+%
+{wocp_summary %>%
+   filter(str_detect(country, "Others|Big 3"))}
+
+# Distinct colors for this plot
+p2 <- p2 +
+    scale_color_manual(NULL, values = c("darkgoldenrod1", "darkslategray4"))
+
+# All (annotated plot; plot inside left-hand side plot)
+p3 <- p2 %+%
+{wocp_summary %>%
+  filter(str_detect(country, "All"))}
+
+# Axis label reduction prevents overlap; border distinguishes from surrounding
+# plot background
+p3 <- p3 +
+ scale_x_date(NULL, expand = expand_scale(),
+              breaks = as.Date(c("1995-01-01", "2005-01-01", "2015-01-01")),
+              labels = c(1995, 2005, 2015)) +
+ scale_color_manual(NULL, values = "black") +
+ theme_default(text_size = 40) +
+ theme(strip.text = element_blank(),
+       legend.position = c(0, 1),
+       legend.justification = c(0, 1), 
+       plot.background = element_rect(color = "black", size = 2))
+
+ggsave_4x7(f1 <- tempfile("p1", tmp_dir, ".png"), p1)
+ggsave_4x7(f3 <- tempfile("p1", tmp_dir, ".png"), p3)
+
+raster_3 <- f3 %>%
+    image_read() %>%
+    # image_border("black", "6x6") %>%
+    as.raster()
+
+p2_orig <- p2
+
+p2 <- p2 +
+ # annotation_raster(raster_3, as.Date("1998-01-01"), as.Date("2011-01-01"), 24.5, 43.5)
+ annotation_raster(raster_3, as.Date("1998-01-01"), as.Date("2017-01-01"), 31, 44.7)
+
+ggsave_4x7(f2 <- tempfile("p2", tmp_dir, ".png"), p2)
+
+# list(f1, f2) %>%
+#  map(image_read) %>%
+#  {bind_images_h(.[[1]], .[[2]])} %>%
+#  image_trim() %>%
+#  image_border("white", "5x0") %>%
+#  stt("Production (Million Barrels Per Day)", height = 125, size = 90) %>%
+#  stt("A new rivalry for the title of the #1 oil producer.", height = 190, size = 90) %>%
+#  stt("The Big Three", height = 145, size = 120) %>%
+#  sbt("Source: US Energy Information Administration", height = 100, size = 75, gravity = "southeast", location = geometry_point(5, 0)) %>%
+#  image_resize("1200x")
+
+# https://stackoverflow.com/questions/9917049/inserting-an-image-to-ggplot2
+p4 <- ggdraw() +
+    draw_plot(p2_orig) +
+    draw_image(f3, scale = 0.475)
+
+ggsave_4x7(f4 <- tempfile("p4", tmp_dir, ".png"), p4)
+
+# Combine plot images and annotate
+list(f1, f4) %>%
+ map(image_read) %>%
+ {bind_images_h(.[[1]], .[[2]])} %>%
+ image_trim() %>%
+ image_border("white", "5x0") %>%
+ stt("Production (Million Barrels Per Day)", height = 125, size = 90) %>%
+ stt("A new rivalry for the title of the #1 oil producer.", height = 190, size = 90) %>%
+ stt("The Big Three", height = 145, size = 120) %>%
+ sbt("Source: US Energy Information Administration", height = 100, size = 75, gravity = "southeast", location = geometry_point(5, 0)) %>%
+ image_resize("1200x")
+```
+
+
+```{r top-10}
+wocp %>%
+ filter(date == max(date)) %>%
+ arrange(desc(prod)) %>%
+ slice(1:10) %>%
+ pull(country) -> top_10
+
+
+```

@@ -1,0 +1,652 @@
+---
+title  : "US Rig Counts"
+author : "Luke Smith"
+date   : "`r Sys.Date()`"
+tags   : [r, oil, gas, oil and gas, rig counts]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "US Rig Counts"
+  description : ""
+  image       : ""
+og :
+  image : ""
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup-packages, include=FALSE, purl=TRUE, eval=TRUE}
+# ____ Library_Tidyverse_Setup
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(glue)
+
+# ____ Library_ploting_Setup
+library(magick)
+library(grid)
+library(gridExtra)
+library(scales)
+library(extrafont); loadfonts("win", quiet = TRUE)
+
+
+# ____ Library_Reporting_Setup
+library(knitr)
+library(kableExtra)
+
+# ____ My_Blogging_Setup
+# devtools::install_github("seasmith/blg")
+library(blg)
+
+# ____ GIS_Setup
+library(sf)
+library(sp)
+```
+
+```{r setup-knitr, include=FALSE}
+# ____ knitr_Opts_Setup
+opts_chunk$set(echo = FALSE)
+opts_chunk$set(fig.height = 7)
+opts_chunk$set(message = FALSE)
+opts_chunk$set(warning = FALSE)
+opts_chunk$set(cache.path = "cache/index/")
+
+
+# ____ knitr_Options_Setup
+orig_inline <- knit_hooks$get("inline")
+old_plot    <- knit_hooks$get("plot")
+
+
+# ____ Hooks_Setup
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x) | is.integer(x)) return(formatC(x, format = "d", big.mark = ",")) else
+    if (is.character(x)) return(str_to_title(x)) else
+      return(x)
+})
+```
+
+```{r setup-extra, include=FALSE}
+# ____ Theme
+# My theme
+theme_set(blg_theme_default())
+
+# Rig Type Colors
+oil_color   <- "#E69F00"
+gas_color   <- "#56B4E9"
+total_color <- "gray90"
+
+# Sign colors (i.e. positive, negative, neutral)
+positive <- "#4569b2"
+negative <- "#b24545"
+neutral  <- "gray80"
+
+set_sign_color <- function(x) {
+  x <- Filter(function(i) i != 0, x)
+  map_chr(as.character(x), ~switch(.x,
+                                   "-1" = negative,
+                                   "1"  = positive))}
+
+# Base text size for bar charts
+bar_text_size	<- 12.7
+
+theme_gray20 <- function(text_size = 16,
+                       bg_color = "gray20",
+                       title_color   = "gray80", text_color = "gray90",
+                       grid_color    = "gray70",
+                       caption_color = "gray50") {
+  
+  theme(text = element_text("Open Sans", size = text_size, color = text_color),
+        panel.grid.major   = element_line(color = grid_color),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        axis.text  = element_text(color = text_color),
+        axis.title = element_blank(),
+        plot.title = element_text(color = title_color),
+        plot.subtitle = element_text(color = title_color),
+        plot.caption  = element_text(colour = caption_color, size = 10),
+        plot.background = element_rect(fill = bg_color,
+                                       color = bg_color))
+  
+  }
+
+# ____ Printing
+# Do not print number like 1.54e-4
+old_scipen <- getOption("scipen")
+options(scipen = 100)
+
+# Show only two significant digits
+old_digits <- getOption("digits")
+options(digits = 2)
+
+# ____ Text_manipulation
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+
+# Prefix signs to numbers
+prefix_sign <- function(x) if (x > 0) paste0("+", x) else x
+```
+
+
+```{r tidy-basin-count}
+source("~/R/oil/scripts/tidy/rig-counts/summarize-rc_basin.R")
+```
+
+```{r build-raster-us, cache=TRUE}
+source("~/R/oil/scripts/tidy/maps/raster_us.R")
+```
+
+
+```{r print-diff}
+# Move show diff to R script
+show_diff <- diff %>%
+ summarize_at(vars(Gas:Total), base::diff) %>%
+ mutate(Date = "Total Change") %>%
+ bind_rows(mutate_at(diff, vars(Date), as.character), .) %>%
+ select(Date, Total, Oil, Gas, Misc)
+
+# Going up or down
+direction <- if (show_diff$Total[3] > 0) {
+ "gain"
+} else if (show_diff$Total[3] < 0) {
+ "loss"
+} else {
+ "No change"
+}
+
+# How much?
+magnitude <- if(abs(show_diff$Total[3]) > 11) {
+ "Massive"
+} else if (abs(show_diff$Total[3]) > 6) {
+ "Big"
+} else if (between(abs(show_diff$Total[3]), 1, 5)) {
+ "Slight"
+}
+
+# Human-readable summary
+readable_summ <- glue("{magnitude} {direction} in US rig count ({prefix_sign(show_diff$Total[3])}) from {comma(show_diff$Total[1])} to {comma(show_diff$Total[2])} ({prefix_sign(show_diff$Oil[3])} oil; {prefix_sign(show_diff$Gas[3])} gas; {prefix_sign(show_diff$Misc[3])} misc) #rigcount #OOTT #oilandgas")
+
+# Print human-readable
+asis_output(readable_summ)
+
+show_diff %>%
+ kable(format = "html") %>%
+ kable_styling(bootstrap_options = c("striped", "hover"),
+               full_width = FALSE)
+```
+
+
+```{r merge-rig-count-sf-data, include=FALSE}
+##  Merge rig count and sf data
+sf_plays_total <- sf_plays %>%
+ merge(this_week, by.x = "Shale_play", by.y = "basin")
+
+sf_type_comparison <- sf_plays %>%
+ merge(type_comparison, by.x = "Shale_play", by.y = "basin")
+```
+
+```{r build-blank-geom, cache=TRUE}
+source("~/R/oil/scripts/tidy/plots/blank-geom.R")
+```
+
+<!-- Rig count plots -->
+
+```{r plot-rig-count-map}
+##  Map
+diff_1wk <- this_week$pct_1wk %>%
+  sign() %>%
+  unique() %>%
+  sort()
+
+map_colors <- diff_1wk %>%
+  as.character() %>%
+  map_chr(~switch(.x,
+                  "-1" = negative,
+                  "0"  = neutral,
+                  "1"  = positive))
+
+sf_plays_total <- st_transform(sf_plays_total, crs = st_crs(102003))
+
+plays_positive <- filter(sf_plays_total, sign(net_1wk) == 1)
+plays_neutral  <- filter(sf_plays_total, sign(net_1wk) == 0)
+plays_negative <- filter(sf_plays_total, sign(net_1wk) == -1)
+```
+
+
+```{r plot-basin-status, eval=TRUE}
+rc_map <- ggplot() +
+    annotation_raster(base_raster, bbox[["xmin"]], bbox[["xmax"]], bbox[["ymin"]], bbox[["ymax"]]) +
+    geom_sf(data = plays_neutral,  color = "#00000000", alpha = 0.7, fill = neutral) +
+    geom_sf(data = plays_negative, color = "#00000000", alpha = 0.7, fill = negative) +
+    geom_sf(data = plays_positive, color = "#00000000", alpha = 0.7, fill = positive) +
+    scale_x_continuous(expand = expand_scale()) +
+    scale_y_continuous(expand = expand_scale()) +
+    coord_sf(datum = NA, crs = st_crs(102003),
+             xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
+             ylim = c(bbox[["ymin"]], bbox[["ymax"]])) +
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          legend.position = c(0.81, 0.13),
+          axis.title = element_blank(),
+          axis.text = element_blank(),
+          plot.caption = element_text(vjust = -1))
+```
+
+
+```{r plot-1wk}
+# Set plot margins
+t_marg <- 0.1; l_marg <- 0.0; r_marg <- 0.5
+
+# Colors for bar charts.
+# Different than map colors since plays with 'no change'
+# are removed from the bar charts.
+pct_1wk_colors <- diff_1wk %>%
+  set_sign_color()
+
+####  Change from week ago
+# Percent change
+
+  # Create levels vector
+  pct_1wk_levels <- this_week %>%
+    arrange(desc(pct_1wk), basin) %>%
+    .$basin
+    
+  # Assign levels
+  this_week <- this_week %>%
+    mutate(basin = factor(basin, levels = pct_1wk_levels))
+
+##  Bar chart: Percent change from week ago
+rc_pct_1wk <- this_week %>%
+ filter(pct_1wk != 0 & !is.infinite(pct_1wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), pct_1wk, fill = pct_1wk > 0)) +
+ coord_flip() +
+ scale_fill_manual(values = pct_1wk_colors) +
+ scale_x_discrete(expand  = expand_scale()) +
+ scale_y_continuous(labels = blg_frmt_percent(0),
+                    breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Percent change from\nprevious week",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
+
+# Net change in value
+net_1wk_colors <- this_week$net_52wk %>%
+  sign() %>%
+  unique() %>%
+  sort() %>%
+  set_sign_color()
+
+  # Create levels vector
+  net_1wk_levels <- this_week %>%
+    arrange(desc(net_1wk), basin) %>%
+    .$basin
+    
+  # Assign levels
+  this_week <- this_week %>%
+    mutate(basin = factor(basin, levels = net_1wk_levels))
+
+##  Bar chart: Net change in value from week ago
+rc_net_1wk <- this_week %>%
+ filter(net_1wk != 0 & !is.infinite(pct_1wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), net_1wk, fill = net_1wk > 0)) +
+ coord_flip() +
+ scale_fill_manual(values = net_1wk_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Net change from\nprevious week",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
+```
+
+```{r plot_52wk}
+####  Change from year ago
+# Color setup
+wk52_colors <- this_week$pct_52wk %>%
+  sign() %>%
+  unique()
+
+wk52_colors <- switch(as.character(sum(wk52_colors) + 2),
+                      "1" = negative, # when only negative change
+                      "2" = c(positive, negative), # when both
+                      "3" = positive) # when only positive change
+
+# Percent change
+  # Create levels vector
+  pct_52wk_levels <- this_week %>%
+    arrange(desc(pct_52wk), basin) %>%
+    .$basin
+  
+  # Assign levels
+  this_week <- this_week %>%
+    mutate(basin = factor(basin, levels = pct_52wk_levels))
+
+  
+##  BAR - Rig count; 52 week percent change
+rc_pct_52wk <- this_week %>%
+ filter(pct_52wk != 0 & !is.infinite(pct_52wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), pct_52wk, fill = pct_52wk < 0)) +
+ coord_flip() +
+ scale_fill_manual(values = wk52_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(labels = blg_frmt_percent(0),
+                    breaks = pretty_breaks(3),
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Percent change from\nprevious year",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
+
+
+# Net change
+  # Create levels vector
+  net_52wk_levels <- this_week %>%
+    arrange(desc(net_52wk), basin) %>%
+    .$basin
+  
+  # Assign levels
+  this_week <- this_week %>%
+    mutate(basin = factor(basin, levels = net_52wk_levels))
+
+##  BAR - Rig count; 52 week percent change
+rc_net_52wk <- this_week %>%
+ filter(net_52wk != 0 & !is.infinite(net_52wk)) %>%
+ ggplot() +
+ geom_col(aes(fct_rev(basin), net_52wk, fill = net_52wk < 0)) +
+ coord_flip() +
+ scale_fill_manual(values = wk52_colors) +
+ scale_x_discrete(expand = expand_scale()) +
+ scale_y_continuous(breaks = pretty_breaks(3),
+                    minor_breaks = NULL,
+                    expand = expand_scale()) +
+ guides(fill = FALSE) +
+ labs(title = "Net change from\nprevious year",
+      x = NULL,
+      y = "") +
+ theme_gray20(bar_text_size) +
+ theme(panel.grid.major.x = element_line(linetype = "dotted"),
+       panel.grid.major.y = element_blank(),
+       plot.margin = unit(c(t_marg, r_marg, 0, l_marg), "cm"))
+```
+
+```{r save-vars}
+root_path <- "~/R/oil/imgs/rig_counts/intermediate"
+```
+
+```{r save-map}
+ggsave(f_rc_map <- file.path(root_path, "rc_map.png"),
+       rc_map, dpi = 600)
+```
+
+```{r save-bar-plots}
+w <- 3.5
+h <- 4
+
+ggsave(f_rc_net_1wk <- file.path(root_path, "rc_net_1wk.png"),
+       rc_net_1wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_net_52wk <- file.path(root_path, "rc_net_52wk.png"),
+       rc_net_52wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_pct_1wk <- file.path(root_path, "rc_pct_1wk.png"),
+       rc_pct_1wk, width = w, height = h, dpi = 600)
+
+ggsave(f_rc_pct_52wk <- file.path(root_path, "rc_pct_52wk.png"),
+       rc_pct_52wk, width = w, height = h, dpi = 600)
+```
+
+
+```{r save-rig-count-map}
+top_bars <- f_rc_net_1wk %>%
+ image_read() %>%
+ image_join(
+  f_rc_net_52wk %>%
+   image_read()
+ ) %>%
+ image_append() %>%
+ image_resize("1800x")
+
+bot_bars <- f_rc_pct_1wk %>%
+ image_read() %>%
+ image_join(
+  f_rc_pct_52wk %>%
+   image_read()
+ ) %>%
+ image_append() %>%
+ image_resize("1800x")
+
+bars <- top_bars %>%
+ image_join(
+  image_blank(image_info(.)$width, 50, "gray20")
+  , .
+  , image_blank(image_info(.)$width, 50, "gray20")
+  , bot_bars
+ ) %>%
+ image_append(TRUE)
+
+# Stitch visualizations together
+major_basin <- f_rc_map %>%
+ image_read() %>%
+ image_trim() %>%
+ image_resize("1800x") %>%
+ image_join(bars) %>%
+ image_append(TRUE)
+
+# Add sub-title
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, 120, "gray20") %>%
+   image_annotate(paste0("Rig count change from "
+                         ,pretty_date(key_dates[["week_ago"]])
+                         ," to "
+                         ,pretty_date(key_dates[["this_week"]]))
+                  , font = "Lato", size = 60, color = "white"
+                  , location = geometry_point(5, 5))
+  , .
+ ) %>%
+ image_append(TRUE)
+
+# Add title
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, 100, "gray20") %>%
+   image_annotate(paste0("Major Basin Report")
+                  , font = "Lato", size = 90, color = "white"
+                  , location = geometry_point(5, 5))
+  , .
+ ) %>%
+ image_append(TRUE)
+
+# Add caption
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(image_info(.)$width, height = 80, "gray20") %>%
+   image_annotate("Source: Baker Hughes Rig Count"
+                  , font = "Lato", color = "gray50", size = 50
+                  , location = geometry_point(5, 10))
+ ) %>%
+ image_append(TRUE) 
+
+# Add padding to left and right
+major_basin <- major_basin %>%
+ image_join(
+  image_blank(25, image_info(.)$height, "gray20")
+  , .
+  , image_blank(25, image_info(.)$height, "gray20")
+ ) %>%
+ image_append()
+
+# Save image
+major_basin <- major_basin %>%
+ image_resize("1350x") %>%
+ image_write("~/R/oil/imgs/rig_counts/weekly/rig-count-map.png")
+```
+
+![](../../imgs/rig_counts/weekly/rig-count-map.png)
+
+<br>
+<br>
+
+<!-- Rig type plots -->
+
+```{r plot_rig_type_canvas}
+##  LAYOUT - Rig type
+rt_gb <- gb +
+  labs(title = "Focal point",
+       subtitle = paste0("Which resource did rigs target for the week of ",
+                         pretty_date(key_dates[["this_week"]]), "?"),
+       caption = paste0("Source: Baker Hughes Rig Count"))
+```
+
+```{r plot_rig_type_chart}
+##  LINE - Rig type
+summ_text <- diff %>%
+ select(-Misc) %>%
+ gather(... = -Date) %>%
+ filter(Date == max(Date)) %>%
+ mutate(label_key = str_pad(key, max(str_length(key)), "right"),
+        label_value = str_pad(paste0("(", comma(value), ")"),
+                              max(str_length(paste0("(", comma(value), ")"))),
+                              "right"),
+        label = paste0(label_key, "\n", label_value))
+
+# Labels
+summ_text <- summ_text %>%
+  mutate(x = Date + 80,
+         y = case_when(
+          # Controls height of labels -- to prevent overlapping
+           key == "Total" ~ value + 20,
+           key == "Oil"   ~ value - 90,
+           key == "Gas"   ~ value + 15
+         ))
+
+cut_off_date <- as.Date("2014-01-01")
+
+
+rt_type <- summ %>%
+  filter(Date >= cut_off_date) %>%
+  ggplot() +
+  geom_line(aes(Date, value, color = key), size = 0.7) +
+  geom_text(aes(x, y, group = key, color = key, label = label),
+            data = summ_text) +
+  scale_x_date(expand = expand_scale(),
+               limits = c(cut_off_date - 50, key_dates[["this_week"]] + 165)) +
+  scale_y_continuous(labels = comma,
+                     expand = expand_scale()) +
+  scale_color_manual(values = c(gas_color, oil_color, total_color)) +
+  guides(color = FALSE,
+         fill  = FALSE) +
+  labs(title = "Rig count by well type",
+       x = NULL,
+       y = NULL) +
+  theme_gray20(bar_text_size) +
+  theme(plot.title = element_text(size = 12, hjust = -0.052),
+        panel.grid.major.x = element_blank(),
+        axis.text.y = element_text(margin = margin(0, -14, 0, 0, "pt"), vjust = -1.0))
+```
+
+```{r plot_total_chart_build}
+##  BAR - Total current rig total
+rc_total <- total_comparison %>%
+  filter(Date == max(Date) & key %in% c("Oil", "Gas", "Total")) %>%
+  select(basin:value) %>%
+  spread(key, value) %>%
+  gather(... = c(Gas, Oil)) %>%
+  arrange(Total, basin)
+
+rc_total$basin <- factor(rc_total$basin, levels = unique(rc_total$basin))
+
+rc_total_chart <- rc_total %>%
+  ggplot() +
+  geom_col(aes(basin, value, fill = key)) +
+  scale_fill_manual("Rig type", values = c(gas_color, oil_color)) +
+  labs(title = "Rig count by basin",
+       x = NULL,
+       y = NULL) +
+  scale_y_continuous(expand = expand_scale()) +
+  guides(fill = FALSE) +
+  theme_gray20(bar_text_size) +
+  theme(plot.margin = unit(c(20, 0, 0, 0), "pt"),
+        plot.title = element_text(size = 12, hjust = -0.318),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_line(linetype = "dotted")) +
+  coord_flip()
+```
+
+```{r plot_rig_type_build}
+rt_gb_grob <- ggplotGrob(rt_gb)
+
+rt_grobs <- arrangeGrob(rt_type, rc_total_chart,
+                        layout_matrix = rbind(c(1, 1),
+                                              c(2, 2)))
+
+rt_gb_grob$grobs[[which(rt_gb_grob$layout$name == "panel")]] <- rt_gb_grob$grobs[[which(rt_gb_grob$layout$name == "panel")]] %>%
+  addGrob(rt_grobs)
+```
+
+```{r plot_rig_type_draw, fig.height=9}
+# old fig.height=9.2
+grid.draw(rt_gb_grob)
+ggsave("~/R/oil/imgs/rig_counts/weekly/rig-count-timeline.png", rt_gb_grob, dpi = 300)
+```
+
+
+```{r summary_plots, eval=FALSE}
+# Pre-crash to present
+rc_basin %>%
+ filter(grepl("Total", key)) %>%
+ ggplot() +
+ geom_line(aes(Date, value, group = key),
+           color = nord::nord_palettes$lake_superior[2L]) +
+ scale_x_date(expand = expand_scale()) +
+ # scale_y_continuous(expand = expand_scale()) +
+ facet_wrap(~basin, scales = "free") +
+ theme_g10() +
+ theme(panel.grid.major = element_blank(),
+       axis.line.x = element_line(color = "gray50"),
+       axis.line.y = element_line(color = "gray50"),
+       plot.margin = unit(c(0, 0.6, 0.1, 0), "lines"))
+
+# Post-crash to present
+rc_basin %>%
+ filter(grepl("Total", key) & Date >= as.Date("2014-12-01")) %>%
+ ggplot() +
+ geom_line(aes(Date, value, group = key),
+           color = nord::nord_palettes$lake_superior[2L]) +
+ scale_x_date(expand = expand_scale()) +
+ # scale_y_continuous(expand = expand_scale()) +
+ facet_wrap(~basin, scales = "free") +
+ theme_g10() +
+ theme(panel.grid.major = element_blank(),
+       axis.line.x = element_line(color = "gray50"),
+       axis.line.y = element_line(color = "gray50"),
+       plot.margin = unit(c(0, 0.6, 0.1, 0), "lines"))
+```
+
+
+```{r d3_csv, include=FALSE, eval=FALSE}
+this_week <- mutate(this_week, basin = if_else(basin == "Others", "Other US Basins", as.character(basin)))
+netCount <- this_week %>% select(basin, value)
+netChange <- this_week %>% select(basin, net_1wk)
+
+write_csv(netCount, "~/D3/rc_map/netCount.csv")
+write_csv(netChange, "~/D3/rc_map/netChange.csv")
+```
