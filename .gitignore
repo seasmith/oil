@@ -4,8 +4,7 @@ config.js
 .RData
 .RHistory
 node_modules
-rig_count_map.png
-rig_count_timeline.png
+*.png
 index.html
 .Rprofile
 index2_cache
