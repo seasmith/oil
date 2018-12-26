@@ -7,7 +7,8 @@ library(purrr)
 id <- 293653
 freq_order <- c("D", "W", "M", "Q", "A")
 
-source("scripts/import/eia/00_master-functions.R")
+# source("scripts/import/eia/00_master-functions.R")
+source("scripts/import/functions.R")
 
 # SCRAPE SPOT PRICE CATEGORY ----------------------------------------------
 

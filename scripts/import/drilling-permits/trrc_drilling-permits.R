@@ -25,15 +25,7 @@ library(fs)
 
 # FUNS --------------------------------------------------------------------
 
-get_result_set <- function(html, xpath) {
- x <- html_nodes(html, xpath = xpath)
- x <- html_text(x)
- x <- str_extract(x, "\\d* results") 
- x <- str_extract(x, "\\d*")
- as.integer(x)
-}
-
-is_not_empty <- compose(`!`, is_empty)
+source("scripts/import/functions.R", echo = FALSE)
 
 
 # LOAD DATA ---------------------------------------------------------------

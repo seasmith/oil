@@ -7,7 +7,8 @@ library(purrr)
 eia_api_url <- "http://api.eia.gov"
 cat_id <- 241347
 
-source("scripts/import/eia/00_master-functions.R")
+# source("scripts/import/eia/00_master-functions.R")
+source("scripts/import/functions.R")
 
 # SCRAPE SPOT PRICE CATEGORY ----------------------------------------------
 
