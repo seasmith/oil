@@ -35,6 +35,8 @@ get_result_set <- function(html, xpath) {
 # EIA FUNCTIONS -----------------------------------------------------------
 #   -----------------------------------------------------------------------
 
+
+
 # CATEGORY FUNCTIONS ------------------------------------------------------
 
 
@@ -78,3 +80,20 @@ get_series_meta <- function(json) {
 get_series_data <- function(json) {
  as_tibble(json$series[, names(json$series) %in% "data"][[1]])
 }
+
+
+
+# EXTRACTION FUNCTIONS ----------------------------------------------------
+
+# Get elements by names; alternative to using purrr::safely(`[[`, "regex-here")
+get_element_by_regex <- function(list, regex) {
+ function(x) {
+  which_el <- which(stringr::str_detect(names(x), regex))
+  if (is_not_empty(which_el)) x[[which_el]] else NULL 
+ }
+}
+
+# Get elements from 'content' (extracted using httr::content())
+get_content_request <- get_element_by_regex(x, "^request$")
+get_content_cat <- get_element_by_regex(x, "^category$")
+get_content_child <- get_element_by_regex(x, "^childseries$")
