@@ -66,7 +66,7 @@ uscop <- prod_api$crude_oil_production %>%
 ```
 
 
-```{r}
+```{r, top-right-plot}
 # List of top 5 producers
 top_5 <- "Texas|New Mexico|Oklahoma|North Dakota|Federal Offshore"
 
