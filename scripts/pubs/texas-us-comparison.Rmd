@@ -225,7 +225,7 @@ p3 <- cop %>%
  scale_fill_gradientn("Million Barrels Per Day", colours = pals::brewer.reds(5), na.value = "gray50") +
  guides(fill = guide_colorbar(title.position = "top", barwidth = unit(12.65, "cm"), barheight = unit(0.2, "cm"))) +
  coord_sf(datum = NA, crs = st_crs(102003)) +
- labs(title = "Texas Is Leader Of The Pack In US Oil Production",
+ labs(title = sprintf("Texas Is Leader Of The Pack In US Oil Production (%s)", trunc_date2(max(cop$date))),
       caption = "Source: US Energy Information Administration \nNote: State offshore production included with respective states.") +
  theme_void(base_size = 10, base_family = "Lato") +
  theme(text = element_text(color = "white"),
