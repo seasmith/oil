@@ -104,12 +104,18 @@ cop_three_labs <- cop_three_labs %>%
 # For stacked area chart
 cop_three_labs$prod <- cop_three_labs$prod + c(3.4, -0.550, -1.05)
 
+# Plot params
+x_lims <- as.Date(c("1981-01-01", max(cop_three$date)))
+y_lims <- c(0, sum(filter(cop_three, date == max(date))$prod))
+# x_breaks 
+y_breaks <- seq(0, max(y_lims), by = 2)
+
 p1 <- cop_three %>%
  ggplot(aes(x = date, y = prod, fill = location)) +
  geom_area(aes(color = location), position = "stack") +
  geom_text(aes(label = lab), cop_three_labs, hjust = 1, nudge_x = -90, color = "white", size = 5) +
- scale_x_date(NULL, expand = expand_scale(), limits = as.Date(c("1981-01-01", max(cop$date)))) +
- scale_y_continuous(NULL, expand = expand_scale(), breaks = c(0, 2, 4, 6, 8, 10), limits = c(0, 11)) +
+ scale_x_date(NULL, expand = expand_scale(), limits = x_lims) +
+ scale_y_continuous(NULL, expand = expand_scale(), breaks = , limits = y_lims) +
  scale_fill_manual(values = pals::brewer.pubu(10)[c(8,7,6)], guide = FALSE) +
  scale_color_manual(values = pals::brewer.pubu(10)[c(8,7,6)], guide = FALSE) +
  labs(title = "Texas Produces More Than The Next Four States",
