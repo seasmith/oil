@@ -9,7 +9,7 @@ library(purrr)
 # GENERAL PURPOSE FUNCTIONS -----------------------------------------------
 
 # Negation of purrr::is_empty()
-is_not_empty <- compose(`!`, is_empty)
+is_not_empty <- purrr::negate(purrr::is_empty)
 
 # Negation of %in%
 `%not_in%` <- purrr::compose(`!`, `%in%`)
