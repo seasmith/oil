@@ -1,6 +1,13 @@
 library(purrr)
 library(magick)
 
+# Make pretty dates
+pretty_date <- function(n) format(n, "%B %d, %Y")
+trunc_date <- function(x) strftime(x, format = "%b '%y")
+trunc_date2 <- function(x) strftime(x, format = "%B %Y")
+trunc_date3 <- function(x) strftime(x, format = "'%y")
+week_segment <- function(x) if (lubridate::wday(x, label = FALSE, week_start = 1L) <= 5L) "weekday" else "weekend"
+
 # Creates title-like text at the top of an image
 set_top_text <- function(i, text, height = 125, size = 100, font = "Arial", 
                          color = "black", bg_color = "white", gravity = "northwest",
