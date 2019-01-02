@@ -36,8 +36,9 @@ library(sf)
 
 load("~/R/oil/data/maps/offshore/offshore.RData")
 load("~/R/oil/data/maps/us/states_map.RData")
+source("~/R/oil/scripts/pubs/functions.R")
 
-import <- TRUE
+import <- FALSE
 ```
 
 ```{r knitr-opts}
@@ -47,7 +48,7 @@ options(digits = 3)
 ```
 
 ```{r import-data, eval=import}
-source("~/R/oil/scripts/import/production/world-oil-condensate-production.R", echo = FALSE)
+source("~/R/oil/scripts/import/production/us-state-oil-production.R", echo = FALSE)
 ```
 
 ```{r load-data, eval=TRUE}
