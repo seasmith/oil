@@ -1,3 +1,22 @@
+---
+title  : "Texas vs. The Rest Of The United States"
+author : "Luke Smith"
+date   : "`r Sys.Date()`"
+tags   : [r, oil, gas, oil and gas]
+description: ""
+twitter :
+  card    : "summary_large_image"
+  site    : "@lksmth"
+  creator : "@lksmth"
+  title   : "Texas vs. The Rest Of The United States"
+  description : ""
+  image       : ""
+og :
+  image : ""
+editor_options: 
+  chunk_output_type: console
+---
+
 ```{r notes, eval=FALSE, echo=FALSE}
 # Both ategories are typically updated at the end of the month (last Friday).
 ```
