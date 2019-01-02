@@ -7,7 +7,7 @@ library(tidyverse)
 library(httr)
 
 `%not_in%` <- compose(`!`, `%in%`)
-
+qry_cat  <- 2134979
 
 
 
@@ -17,7 +17,7 @@ load("~/R/oil/data/prod/update_schedule.RData")
 
 # When did this execution happen?
 update_schedule <- update_schedule %>%
- mutate(executed = if_else(category == "wocp", Sys.time(), executed))
+ mutate(executed = if_else(category == qry_cat, Sys.time(), executed))
 
 
 
